@@ -18,7 +18,6 @@ export const metadata: Metadata = {
 };
 
 import Providers from "./providers";
-import { ErrorBoundary } from "@/components/error-boundary";
 
 export default function RootLayout({
   children,
@@ -30,9 +29,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ErrorBoundary>
-          <Providers>{children}</Providers>
-        </ErrorBoundary>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

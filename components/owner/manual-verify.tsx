@@ -4,9 +4,6 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { UserCheck, Loader2, CheckCircle, XCircle, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { useAsyncOperation } from '@/hooks/use-error-handler'
-import { validateRequired } from '@/lib/error-handler'
-import { ErrorMessage } from '@/components/ui/error-message'
 
 interface ManualVerifyProps {
   onSuccess?: (data: any) => void
@@ -14,26 +11,23 @@ interface ManualVerifyProps {
 
 export function ManualVerify({ onSuccess }: ManualVerifyProps) {
   const [shortId, setShortId] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
   const [student, setStudent] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
   const [verificationResult, setVerificationResult] = useState<any>(null)
   const supabase = createClient()
-  const { loading: searching, error: searchError, execute: executeSearch, clearMessages: clearSearchMessages } = useAsyncOperation('Search Student')
-  const { loading: verifying, error: verifyError, execute: executeVerify, clearMessages: clearVerifyMessages } = useAsyncOperation('Verify Meal')
 
   const searchStudent = async () => {
-    clearSearchMessages()
-    clearVerifyMessages()
-    
-    const validationError = validateRequired({ shortId }, ['shortId'])
-    if (validationError) return
-
-    if (shortId.length < 3) {
+    if (!shortId || shortId.length < 3) {
+      setError('Please enter a valid 3-digit ID')
       return
     }
 
+    setIsLoading(true)
+    setError(null)
     setStudent(null)
 
-    await executeSearch(async () => {
+    try {
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -42,19 +36,23 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         .single()
 
       if (error || !data) {
-        throw new Error('Student not found. Please check the ID.')
+        setError('Student not found. Please check the ID.')
+        return
       }
 
       setStudent(data)
-    })
+    } catch (err: any) {
+      setError('Failed to search student. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const verifyMeal = async () => {
     if (!student) return
 
-    clearVerifyMessages()
-
-    await executeVerify(async () => {
+    setIsLoading(true)
+    try {
       // Get current hour to determine meal type
       const hour = new Date().getHours()
       const mealType = hour < 16 ? 'LUNCH' : 'DINNER'
@@ -74,7 +72,7 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
           success: false,
           message: `${mealType} already logged for this student today`
         })
-        throw new Error(`${mealType} already logged for this student today`)
+        return
       }
 
       // Insert into daily_logs
@@ -105,9 +103,15 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         setShortId('')
         setStudent(null)
         setVerificationResult(null)
-        clearVerifyMessages()
       }, 3000)
-    })
+    } catch (err: any) {
+      setVerificationResult({
+        success: false,
+        message: err.message || 'Verification failed'
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -135,24 +139,23 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
                   onChange={(e) => {
                     const value = e.target.value.replace(/\D/g, '').slice(0, 3)
                     setShortId(value)
-                    clearSearchMessages()
-                    clearVerifyMessages()
+                    setError(null)
                     setStudent(null)
                   }}
                   onKeyPress={handleKeyPress}
                   placeholder="e.g., 101"
                   className="flex-1 px-6 py-4 rounded-lg border border-input bg-background text-center text-3xl font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-ring"
                   maxLength={3}
-                  disabled={searching || verifying}
+                  disabled={isLoading}
                   autoFocus
                 />
                 <Button
                   onClick={searchStudent}
-                  disabled={searching || verifying || shortId.length < 3}
+                  disabled={isLoading || shortId.length < 3}
                   size="lg"
                   className="px-8"
                 >
-                  {searching ? (
+                  {isLoading ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
                     'Search'
@@ -161,19 +164,10 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
               </div>
             </div>
 
-            {searchError && (
-              <ErrorMessage 
-                error={searchError} 
-                onDismiss={clearSearchMessages}
-                onRetry={searchStudent}
-              />
-            )}
-
-            {verifyError && !verificationResult && (
-              <ErrorMessage 
-                error={verifyError} 
-                onDismiss={clearVerifyMessages}
-              />
+            {error && (
+              <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
             )}
           </div>
 
@@ -212,11 +206,11 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
               {student.is_active ? (
                 <Button
                   onClick={verifyMeal}
-                  disabled={verifying}
+                  disabled={isLoading}
                   size="lg"
                   className="w-full"
                 >
-                  {verifying ? (
+                  {isLoading ? (
                     <>
                       <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                       Verifying...
