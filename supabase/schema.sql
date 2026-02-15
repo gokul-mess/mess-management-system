@@ -7,9 +7,18 @@ create table public.users (
   full_name text not null,
   unique_short_id serial unique, -- 3-digit ID (e.g., 101)
   photo_url text,
+  phone text,
+  address text,
+  meal_plan text check (meal_plan in ('L', 'D', 'DL')) default 'DL', -- L=Lunch, D=Dinner, DL=Both
   role text check (role in ('STUDENT', 'OWNER')) default 'STUDENT',
+  subscription_start_date timestamp with time zone,
   subscription_end_date timestamp with time zone,
   is_active boolean default true,
+  -- Per-student permission controls
+  profile_edit_allowed boolean default false,
+  photo_update_allowed boolean default false,
+  editable_fields text[] default '{}', -- Array of field names: ['full_name', 'phone', 'address']
+  permission_expires_at timestamp with time zone, -- When temporary permissions expire
   created_at timestamp with time zone default now()
 );
 

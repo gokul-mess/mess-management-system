@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { X, Camera, CheckCircle, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Html5Qrcode } from 'html5-qrcode'
+import { useAsyncOperation } from '@/hooks/use-error-handler'
+import { ErrorMessage } from '@/components/ui/error-message'
 
 interface QRScannerProps {
   onClose: () => void
@@ -13,14 +15,15 @@ interface QRScannerProps {
 
 export function QRScanner({ onClose, onSuccess }: QRScannerProps) {
   const [isScanning, setIsScanning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [cameraError, setCameraError] = useState<string | null>(null)
   const [verificationResult, setVerificationResult] = useState<any>(null)
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null)
   const supabase = createClient()
+  const { loading: verifying, error: verifyError, execute: executeVerify } = useAsyncOperation('Verify Meal')
 
   const startCamera = async () => {
     try {
-      setError(null)
+      setCameraError(null)
       setIsScanning(true) // Set scanning state first to render the element
       
       // Wait for DOM to be ready and element to be rendered
@@ -60,7 +63,7 @@ export function QRScanner({ onClose, onSuccess }: QRScannerProps) {
 
     } catch (err: any) {
       setIsScanning(false)
-      setError(err.message || 'Camera access denied. Please enable camera permissions.')
+      setCameraError(err.message || 'Camera access denied. Please enable camera permissions.')
       console.error('Camera error:', err)
     }
   }
@@ -78,16 +81,21 @@ export function QRScanner({ onClose, onSuccess }: QRScannerProps) {
   }
 
   const verifyMeal = async (qrData: string) => {
-    try {
+    await executeVerify(async () => {
       // Parse QR data (expected format: user_id or JSON with user_id)
       let userId: string
       
       try {
         const parsed = JSON.parse(qrData)
         userId = parsed.user_id || parsed.id
+        if (!userId) throw new Error('Invalid QR code format')
       } catch {
         // If not JSON, treat as direct user_id
         userId = qrData
+      }
+
+      if (!userId) {
+        throw new Error('Invalid QR code: No user ID found')
       }
 
       // Get current hour to determine meal type
@@ -109,7 +117,7 @@ export function QRScanner({ onClose, onSuccess }: QRScannerProps) {
           success: false,
           message: `${mealType} already logged for this student today`
         })
-        return
+        throw new Error(`${mealType} already logged for this student today`)
       }
 
       // Insert into daily_logs
@@ -135,12 +143,12 @@ export function QRScanner({ onClose, onSuccess }: QRScannerProps) {
         onSuccess(data)
         onClose()
       }, 2000)
-    } catch (err: any) {
+    }).catch((err) => {
       setVerificationResult({
         success: false,
         message: err.message || 'Verification failed. Invalid QR code.'
       })
-    }
+    })
   }
 
   useEffect(() => {
@@ -198,9 +206,21 @@ export function QRScanner({ onClose, onSuccess }: QRScannerProps) {
                 )}
               </div>
 
-              {error && (
-                <div className="mb-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-                  <p className="text-xs text-destructive">{error}</p>
+              {cameraError && (
+                <div className="mb-3">
+                  <ErrorMessage 
+                    error={{ message: cameraError }} 
+                    onDismiss={() => setCameraError(null)}
+                  />
+                </div>
+              )}
+
+              {verifyError && (
+                <div className="mb-3">
+                  <ErrorMessage 
+                    error={verifyError} 
+                    onRetry={() => setVerificationResult(null)}
+                  />
                 </div>
               )}
 

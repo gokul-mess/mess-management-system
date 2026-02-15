@@ -21,6 +21,10 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useAsyncOperation } from '@/hooks/use-error-handler'
+import { validateRequired, validateDateRange, parseError } from '@/lib/error-handler'
+import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
+import { LoadingState } from '@/components/ui/loading-state'
 
 export default function StudentDashboard() {
   const { data: profile } = useProfile()
@@ -155,14 +159,18 @@ function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, 
   const supabase = createClient()
   const [parcelOTP, setParcelOTP] = useState<string | null>(null)
   const [otpExpiry, setOtpExpiry] = useState<Date | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  
+  const {
+    loading,
+    error,
+    execute,
+    clearMessages
+  } = useAsyncOperation('Generate Parcel OTP')
 
   const generateParcelOTP = async () => {
-    setLoading(true)
-    setError(null)
+    clearMessages()
     
-    try {
+    await execute(async () => {
       if (!profile?.id) {
         throw new Error('Profile not loaded. Please refresh the page.')
       }
@@ -183,27 +191,24 @@ function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, 
         .single()
 
       if (insertError) {
-        console.error('Database error:', insertError)
         throw new Error(`Failed to generate OTP: ${insertError.message}`)
       }
 
       setParcelOTP(otp)
       setOtpExpiry(expiresAt)
       setShowParcelOTP(true)
-    } catch (err: any) {
-      console.error('OTP generation error:', err)
-      setError(err.message || 'Failed to generate OTP. Please try again.')
-      // Show error in modal
+    })
+    
+    // Show modal even on error
+    if (error) {
       setShowParcelOTP(true)
-    } finally {
-      setLoading(false)
     }
   }
 
   const closeModal = () => {
     setShowParcelOTP(false)
     setParcelOTP(null)
-    setError(null)
+    clearMessages()
   }
 
   return (
@@ -380,21 +385,15 @@ function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, 
 
             {error ? (
               // Error State
-              <div className="text-center py-6">
-                <div className="inline-flex items-center justify-center w-20 h-20 bg-red-500/10 rounded-full mb-4">
-                  <XCircle className="w-10 h-10 text-red-600 dark:text-red-400" />
-                </div>
-                <p className="text-lg font-semibold mb-2">Failed to Generate OTP</p>
-                <p className="text-sm text-muted-foreground mb-4">{error}</p>
-                <Button
-                  onClick={() => {
+              <div className="py-4">
+                <ErrorMessage 
+                  error={error} 
+                  onRetry={() => {
                     closeModal()
                     setTimeout(generateParcelOTP, 100)
                   }}
-                  className="w-full"
-                >
-                  Try Again
-                </Button>
+                  onDismiss={closeModal}
+                />
               </div>
             ) : parcelOTP ? (
               // Success State
@@ -424,13 +423,10 @@ function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, 
                   Close
                 </Button>
               </>
-            ) : (
+            ) : loading ? (
               // Loading State
-              <div className="text-center py-12">
-                <div className="inline-block w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
-                <p className="text-sm text-muted-foreground">Generating OTP...</p>
-              </div>
-            )}
+              <LoadingState message="Generating OTP..." />
+            ) : null}
           </div>
         </div>
       )}
@@ -536,9 +532,15 @@ function LeaveContent() {
   const supabase = createClient()
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const [leaves, setLeaves] = useState<any[]>([])
+  
+  const {
+    loading,
+    error,
+    success,
+    execute,
+    clearMessages
+  } = useAsyncOperation('Submit Leave')
 
   // Fetch existing leaves
   useState(() => {
@@ -557,20 +559,21 @@ function LeaveContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setMessage(null)
+    clearMessages()
     
-    if (!startDate || !endDate) {
-      setMessage({ type: 'error', text: 'Please select both start and end dates' })
+    // Validate required fields
+    const requiredError = validateRequired({ startDate, endDate }, ['startDate', 'endDate'])
+    if (requiredError) {
       return
     }
 
-    if (new Date(startDate) > new Date(endDate)) {
-      setMessage({ type: 'error', text: 'End date must be after start date' })
+    // Validate date range
+    const dateError = validateDateRange(startDate, endDate)
+    if (dateError) {
       return
     }
 
-    setLoading(true)
-    try {
+    await execute(async () => {
       const { error } = await supabase
         .from('leaves')
         .insert({
@@ -582,7 +585,7 @@ function LeaveContent() {
 
       if (error) throw error
 
-      setMessage({ type: 'success', text: 'Leave request submitted successfully!' })
+      // Reset form
       setStartDate('')
       setEndDate('')
       
@@ -594,11 +597,7 @@ function LeaveContent() {
         .order('created_at', { ascending: false })
         .limit(5)
       if (data) setLeaves(data)
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error.message || 'Failed to submit leave request' })
-    } finally {
-      setLoading(false)
-    }
+    })
   }
 
   return (
@@ -635,14 +634,18 @@ function LeaveContent() {
             />
           </div>
 
-          {message && (
-            <div className={`p-3 rounded-lg text-sm ${
-              message.type === 'success' 
-                ? 'bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20' 
-                : 'bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/20'
-            }`}>
-              {message.text}
-            </div>
+          {error && (
+            <ErrorMessage 
+              error={error} 
+              onDismiss={clearMessages}
+            />
+          )}
+          
+          {success && (
+            <SuccessMessage 
+              message="Leave request submitted successfully!" 
+              onDismiss={clearMessages}
+            />
           )}
 
           <Button
@@ -750,26 +753,18 @@ function HistoryContent({ profile, logs }: any) {
 // Profile Content Component
 function ProfileContent({ profile, onSignOut }: any) {
   const supabase = createClient()
-  const [isEditing, setIsEditing] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const [showPhotoUpload, setShowPhotoUpload] = useState(false)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   
   const [authEmail, setAuthEmail] = useState<string>('')
-  
-  // Editable fields
-  const [formData, setFormData] = useState({
-    full_name: profile?.full_name || '',
-    phone: profile?.phone || '',
-    address: profile?.address || '',
-  })
 
-  // Check if profile editing is allowed
-  const canEditProfile = profile?.profile_edit_allowed === true
+  // Check if photo updates are allowed
+  const canUpdatePhoto = profile?.photo_update_allowed === true
 
-  // Fetch auth email and update form when profile loads
+  // Fetch auth email
   useState(() => {
     const fetchAuthEmail = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -778,48 +773,7 @@ function ProfileContent({ profile, onSignOut }: any) {
       }
     }
     fetchAuthEmail()
-
-    if (profile) {
-      setFormData({
-        full_name: profile.full_name || '',
-        phone: profile.phone || '',
-        address: profile.address || '',
-      })
-    }
   })
-
-  const handleSave = async () => {
-    if (!canEditProfile) {
-      setMessage({ type: 'error', text: 'Profile editing is not permitted. Contact the mess owner.' })
-      return
-    }
-
-    setLoading(true)
-    setMessage(null)
-
-    try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          full_name: formData.full_name,
-          phone: formData.phone,
-          address: formData.address,
-        })
-        .eq('id', profile?.id)
-
-      if (error) throw error
-
-      setMessage({ type: 'success', text: 'Profile updated successfully!' })
-      setIsEditing(false)
-      
-      // Refresh profile data
-      window.location.reload()
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error.message || 'Failed to update profile' })
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -884,7 +838,7 @@ function ProfileContent({ profile, onSignOut }: any) {
               </div>
               
               {/* Photo Upload Overlay - Only if owner permits */}
-              {profile?.photo_update_allowed && (
+              {canUpdatePhoto && (
                 <button
                   onClick={() => setShowPhotoUpload(true)}
                   className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
@@ -917,18 +871,9 @@ function ProfileContent({ profile, onSignOut }: any) {
             {/* Full Name */}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">Full Name</label>
-              {isEditing && canEditProfile ? (
-                <input
-                  type="text"
-                  value={formData.full_name}
-                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                  className="w-full px-4 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              ) : (
-                <div className="p-3 bg-accent/50 rounded-lg border border-border">
-                  <p className="font-medium">{profile?.full_name || 'Not set'}</p>
-                </div>
-              )}
+              <div className="p-3 bg-accent/50 rounded-lg border border-border">
+                <p className="font-medium">{profile?.full_name || 'Not set'}</p>
+              </div>
             </div>
 
             {/* Email (Non-editable - from auth) */}
@@ -936,44 +881,23 @@ function ProfileContent({ profile, onSignOut }: any) {
               <label className="block text-xs font-medium text-muted-foreground mb-1">Email Address</label>
               <div className="p-3 bg-accent/30 rounded-lg border border-border">
                 <p className="font-medium text-muted-foreground">{authEmail || 'Loading...'}</p>
-                <p className="text-xs text-muted-foreground mt-1">Email cannot be changed</p>
               </div>
             </div>
 
             {/* Phone */}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">Phone Number</label>
-              {isEditing && canEditProfile ? (
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="Enter phone number"
-                  className="w-full px-4 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              ) : (
-                <div className="p-3 bg-accent/50 rounded-lg border border-border">
-                  <p className="font-medium">{profile?.phone || 'Not set'}</p>
-                </div>
-              )}
+              <div className="p-3 bg-accent/50 rounded-lg border border-border">
+                <p className="font-medium">{profile?.phone || 'Not set'}</p>
+              </div>
             </div>
 
             {/* Address */}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">Address</label>
-              {isEditing && canEditProfile ? (
-                <textarea
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="Enter your address"
-                  rows={3}
-                  className="w-full px-4 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-                />
-              ) : (
-                <div className="p-3 bg-accent/50 rounded-lg border border-border">
-                  <p className="font-medium">{profile?.address || 'Not set'}</p>
-                </div>
-              )}
+              <div className="p-3 bg-accent/50 rounded-lg border border-border">
+                <p className="font-medium">{profile?.address || 'Not set'}</p>
+              </div>
             </div>
 
             {/* Meal Plan (Non-editable) */}
@@ -1058,74 +982,36 @@ function ProfileContent({ profile, onSignOut }: any) {
 
           {/* Action Buttons */}
           <div className="mt-6 space-y-3">
-            {isEditing ? (
-              <>
-                <Button
-                  onClick={handleSave}
-                  disabled={loading || !canEditProfile}
-                  className="w-full"
-                >
-                  {loading ? 'Saving...' : 'Save Changes'}
-                </Button>
-                <Button
-                  onClick={() => {
-                    setIsEditing(false)
-                    setMessage(null)
-                    // Reset form data
-                    setFormData({
-                      full_name: profile?.full_name || '',
-                      phone: profile?.phone || '',
-                      address: profile?.address || '',
-                    })
-                  }}
-                  variant="outline"
-                  className="w-full"
-                >
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  onClick={() => {
-                    if (!canEditProfile) {
-                      setMessage({ type: 'error', text: 'Profile editing is disabled. Contact the mess owner to enable editing.' })
-                      return
-                    }
-                    setIsEditing(true)
-                  }}
-                  variant="outline"
-                  className="w-full"
-                  disabled={!canEditProfile}
-                >
-                  {canEditProfile ? 'Edit Profile' : 'Edit Profile (Disabled)'}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={onSignOut}
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Sign Out
-                </Button>
-              </>
-            )}
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={onSignOut}
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
           </div>
 
           {/* Permission Notes */}
           <div className="mt-4 space-y-2">
-            {!canEditProfile && (
-              <div className="bg-accent/50 border border-border rounded-lg p-3">
-                <p className="text-xs text-muted-foreground">
-                  <strong>Note:</strong> Profile editing is currently disabled. Contact the mess owner to enable profile updates.
-                </p>
-              </div>
-            )}
-            
-            {!profile?.photo_update_allowed && (
-              <div className="bg-accent/50 border border-border rounded-lg p-3">
-                <p className="text-xs text-muted-foreground">
-                  <strong>Note:</strong> Photo updates are currently disabled. Contact the mess owner to enable photo changes.
+            <div className="bg-accent/50 border border-border rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">
+                <strong>Note:</strong> Profile information cannot be edited by students. Contact the mess owner to update your details.
+              </p>
+            </div>
+
+            {canUpdatePhoto && (
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                <p className="text-xs text-blue-700 dark:text-blue-400">
+                  <strong>Photo Updates:</strong> Enabled by owner
+                  {profile?.permission_expires_at && (
+                    <span> (expires: {new Date(profile.permission_expires_at).toLocaleString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })})</span>
+                  )}
                 </p>
               </div>
             )}

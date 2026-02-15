@@ -15,6 +15,9 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react'
+import { useAsyncOperation } from '@/hooks/use-error-handler'
+import { validateRequired } from '@/lib/error-handler'
+import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 
 interface SettingsData {
   mealPricing: {
@@ -22,10 +25,9 @@ interface SettingsData {
     dinner: number
   }
   subscriptionPlans: {
-    monthly: number
-    quarterly: number
-    halfYearly: number
-    yearly: number
+    monthlyLunchOnly: number
+    monthlyDinnerOnly: number
+    monthlyBothMeals: number
   }
   notifications: {
     emailAlerts: boolean
@@ -53,10 +55,9 @@ export function SettingsPanel() {
       dinner: 50
     },
     subscriptionPlans: {
-      monthly: 3000,
-      quarterly: 8500,
-      halfYearly: 16000,
-      yearly: 30000
+      monthlyLunchOnly: 1500,
+      monthlyDinnerOnly: 1500,
+      monthlyBothMeals: 3000
     },
     notifications: {
       emailAlerts: true,
@@ -78,9 +79,8 @@ export function SettingsPanel() {
   })
 
   const [activeTab, setActiveTab] = useState<'pricing' | 'notifications' | 'hours' | 'general'>('pricing')
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const supabase = createClient()
+  const { loading: saving, error: saveError, success: saveSuccess, execute: executeSave, clearMessages } = useAsyncOperation('Save Settings')
 
   useEffect(() => {
     loadSettings()
@@ -102,25 +102,19 @@ export function SettingsPanel() {
   }
 
   const handleSave = async () => {
-    setIsSaving(true)
-    setSaveStatus('idle')
+    clearMessages()
+    
+    // Validate required fields
+    const validationError = validateRequired(settings.general, ['messName'])
+    if (validationError) return
 
-    try {
+    await executeSave(async () => {
       // Simulate save operation
       await new Promise(resolve => setTimeout(resolve, 1000))
       
       // In production, save to database
       // await supabase.from('settings').upsert(settings)
-      
-      setSaveStatus('success')
-      setTimeout(() => setSaveStatus('idle'), 3000)
-    } catch (error) {
-      console.error('Error saving settings:', error)
-      setSaveStatus('error')
-      setTimeout(() => setSaveStatus('idle'), 3000)
-    } finally {
-      setIsSaving(false)
-    }
+    })
   }
 
   const tabs = [
@@ -140,13 +134,13 @@ export function SettingsPanel() {
             Configure your mess management system
           </p>
         </div>
-        <Button onClick={handleSave} disabled={isSaving}>
-          {isSaving ? (
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? (
             <>
               <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
               Saving...
             </>
-          ) : saveStatus === 'success' ? (
+          ) : saveSuccess ? (
             <>
               <CheckCircle className="w-4 h-4 mr-2" />
               Saved
@@ -160,23 +154,19 @@ export function SettingsPanel() {
         </Button>
       </div>
 
-      {/* Save Status Alert */}
-      {saveStatus === 'success' && (
-        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-center gap-3">
-          <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-          <p className="text-sm text-green-800 dark:text-green-200">
-            Settings saved successfully!
-          </p>
-        </div>
+      {/* Save Status Messages */}
+      {saveError && (
+        <ErrorMessage 
+          error={saveError} 
+          onDismiss={clearMessages}
+        />
       )}
 
-      {saveStatus === 'error' && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-          <p className="text-sm text-red-800 dark:text-red-200">
-            Failed to save settings. Please try again.
-          </p>
-        </div>
+      {saveSuccess && (
+        <SuccessMessage 
+          message="Settings saved successfully!" 
+          onDismiss={clearMessages}
+        />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -210,7 +200,10 @@ export function SettingsPanel() {
             {activeTab === 'pricing' && (
               <div className="space-y-6">
                 <div>
-                  <h4 className="text-lg font-semibold mb-4">Meal Pricing</h4>
+                  <h4 className="text-lg font-semibold mb-4">Subscription Meal Pricing</h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Pricing for students with monthly subscriptions
+                  </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium mb-2">
@@ -244,65 +237,69 @@ export function SettingsPanel() {
                 </div>
 
                 <div className="border-t border-border pt-6">
-                  <h4 className="text-lg font-semibold mb-4">Subscription Plans</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <h4 className="text-lg font-semibold mb-4">Monthly Subscription Plans</h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Monthly subscription options for different meal preferences
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium mb-2">
-                        Monthly (₹)
+                        Lunch Only - Monthly (₹)
                       </label>
                       <input
                         type="number"
-                        value={settings.subscriptionPlans.monthly}
+                        value={settings.subscriptionPlans.monthlyLunchOnly}
                         onChange={(e) => setSettings({
                           ...settings,
-                          subscriptionPlans: { ...settings.subscriptionPlans, monthly: parseInt(e.target.value) }
+                          subscriptionPlans: { ...settings.subscriptionPlans, monthlyLunchOnly: parseInt(e.target.value) }
                         })}
                         className="w-full px-4 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        30-day subscription for lunch only (morning meal)
+                      </p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-2">
-                        Quarterly (₹)
+                        Dinner Only - Monthly (₹)
                       </label>
                       <input
                         type="number"
-                        value={settings.subscriptionPlans.quarterly}
+                        value={settings.subscriptionPlans.monthlyDinnerOnly}
                         onChange={(e) => setSettings({
                           ...settings,
-                          subscriptionPlans: { ...settings.subscriptionPlans, quarterly: parseInt(e.target.value) }
+                          subscriptionPlans: { ...settings.subscriptionPlans, monthlyDinnerOnly: parseInt(e.target.value) }
                         })}
                         className="w-full px-4 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        30-day subscription for dinner only (evening meal)
+                      </p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-2">
-                        Half-Yearly (₹)
+                        Both Meals - Monthly (₹)
                       </label>
                       <input
                         type="number"
-                        value={settings.subscriptionPlans.halfYearly}
+                        value={settings.subscriptionPlans.monthlyBothMeals}
                         onChange={(e) => setSettings({
                           ...settings,
-                          subscriptionPlans: { ...settings.subscriptionPlans, halfYearly: parseInt(e.target.value) }
+                          subscriptionPlans: { ...settings.subscriptionPlans, monthlyBothMeals: parseInt(e.target.value) }
                         })}
                         className="w-full px-4 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-2">
-                        Yearly (₹)
-                      </label>
-                      <input
-                        type="number"
-                        value={settings.subscriptionPlans.yearly}
-                        onChange={(e) => setSettings({
-                          ...settings,
-                          subscriptionPlans: { ...settings.subscriptionPlans, yearly: parseInt(e.target.value) }
-                        })}
-                        className="w-full px-4 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        30-day subscription for both lunch and dinner
+                      </p>
                     </div>
                   </div>
+                </div>
+
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <p className="text-sm text-blue-800 dark:text-blue-200">
+                    <strong>Note:</strong> Students can choose their preferred meal plan during subscription. Lunch Only and Dinner Only plans are for students who want fixed morning or evening meals for the entire month.
+                  </p>
                 </div>
               </div>
             )}

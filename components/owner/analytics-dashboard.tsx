@@ -18,6 +18,10 @@ import {
   PieChart,
   BarChart3
 } from 'lucide-react'
+import { useAsyncOperation } from '@/hooks/use-error-handler'
+import { parseError } from '@/lib/error-handler'
+import { ErrorMessage } from '@/components/ui/error-message'
+import { LoadingState } from '@/components/ui/loading-state'
 import {
   LineChart,
   Line,
@@ -53,17 +57,21 @@ interface ChartData {
 export function AnalyticsDashboard() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<any>(null)
   const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('week')
   const [weeklyChartData, setWeeklyChartData] = useState<ChartData[]>([])
   const [monthlyChartData, setMonthlyChartData] = useState<ChartData[]>([])
   const supabase = createClient()
+  const { loading: exporting, error: exportError, success: exportSuccess, execute: executeExport, clearMessages } = useAsyncOperation('Export Report')
 
   useEffect(() => {
     fetchAnalytics()
   }, [timeRange])
 
-  const handleExportReport = () => {
-    try {
+  const handleExportReport = async () => {
+    clearMessages()
+    
+    await executeExport(async () => {
       const reportData = [
         ['Gokul Mess - Analytics Report'],
         [`Generated: ${new Date().toLocaleString('en-IN')}`],
@@ -90,43 +98,50 @@ export function AnalyticsDashboard() {
       a.download = `analytics-report-${new Date().toISOString().split('T')[0]}.csv`
       a.click()
       window.URL.revokeObjectURL(url)
-    } catch (error) {
-      console.error('Export failed:', error)
-      alert('Failed to export report. Please try again.')
-    }
+    })
   }
 
   const fetchAnalytics = async () => {
     setIsLoading(true)
+    setFetchError(null)
+    
     try {
       const today = new Date().toISOString().split('T')[0]
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
       // Fetch today's meals
-      const { data: todayLogs } = await supabase
+      const { data: todayLogs, error: todayError } = await supabase
         .from('daily_logs')
         .select('*')
         .eq('date', today)
 
+      if (todayError) throw todayError
+
       // Fetch weekly meals
-      const { data: weeklyLogs } = await supabase
+      const { data: weeklyLogs, error: weeklyError } = await supabase
         .from('daily_logs')
         .select('*')
         .gte('date', weekAgo)
 
+      if (weeklyError) throw weeklyError
+
       // Fetch monthly meals
-      const { data: monthlyLogs } = await supabase
+      const { data: monthlyLogs, error: monthlyError } = await supabase
         .from('daily_logs')
         .select('*')
         .gte('date', monthAgo)
 
+      if (monthlyError) throw monthlyError
+
       // Fetch active students
-      const { data: students } = await supabase
+      const { data: students, error: studentsError } = await supabase
         .from('users')
         .select('*')
         .eq('role', 'STUDENT')
         .eq('is_active', true)
+
+      if (studentsError) throw studentsError
 
       // Calculate meal type distribution
       const lunchCount = todayLogs?.filter(l => l.meal_type === 'LUNCH').length || 0
@@ -183,6 +198,7 @@ export function AnalyticsDashboard() {
 
     } catch (error) {
       console.error('Error fetching analytics:', error)
+      setFetchError(parseError(error))
     } finally {
       setIsLoading(false)
     }
@@ -191,7 +207,18 @@ export function AnalyticsDashboard() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="animate-spin w-12 h-12 border-4 border-primary border-t-transparent rounded-full" />
+        <LoadingState message="Loading analytics..." />
+      </div>
+    )
+  }
+
+  if (fetchError) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <ErrorMessage 
+          error={fetchError} 
+          onRetry={fetchAnalytics}
+        />
       </div>
     )
   }
@@ -219,12 +246,42 @@ export function AnalyticsDashboard() {
             <option value="month">Last 30 Days</option>
             <option value="year">Last Year</option>
           </select>
-          <Button variant="outline" onClick={handleExportReport}>
-            <Download className="w-4 h-4 mr-2" />
-            Export Report
+          <Button variant="outline" onClick={handleExportReport} disabled={exporting}>
+            {exporting ? (
+              <>
+                <Download className="w-4 h-4 mr-2 animate-spin" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4 mr-2" />
+                Export Report
+              </>
+            )}
           </Button>
         </div>
       </div>
+
+      {/* Export Status Messages */}
+      {exportError && (
+        <ErrorMessage 
+          error={exportError} 
+          onDismiss={clearMessages}
+        />
+      )}
+
+      {exportSuccess && (
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-center gap-3">
+          <div className="w-5 h-5 bg-green-600 dark:bg-green-400 rounded-full flex items-center justify-center">
+            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <p className="text-sm text-green-800 dark:text-green-200">
+            Report exported successfully!
+          </p>
+        </div>
+      )}
 
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
