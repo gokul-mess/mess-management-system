@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { useDailyLogs } from '@/hooks/use-daily-logs'
 import { useProfile } from '@/hooks/use-profile'
 import { Button } from '@/components/ui/button'
-import { QRScanner } from '@/components/owner/qr-scanner'
 import { ManualVerify } from '@/components/owner/manual-verify'
 import { StudentsList } from '@/components/owner/students-list'
 import { AnalyticsDashboard } from '@/components/owner/analytics-dashboard'
@@ -12,24 +11,21 @@ import { SettingsPanel } from '@/components/owner/settings-panel'
 import { 
   LayoutDashboard, 
   Users, 
-  QrCode, 
   BarChart3, 
   Settings,
   Search,
   Bell,
   LogOut,
-  Scan,
   Hash,
   TrendingUp,
   UserCheck,
   Calendar,
   DollarSign,
-  Filter,
   Download,
-  Camera,
-  X
+  Upload,
+  X,
+  Filter
 } from 'lucide-react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -39,7 +35,12 @@ export default function OwnerDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [showNotifications, setShowNotifications] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
-  const [notifications, setNotifications] = useState<any[]>([])
+  const [notifications, setNotifications] = useState<Array<{
+    type: string
+    title: string
+    message: string
+    time: string
+  }>>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const router = useRouter()
   const supabase = createClient()
@@ -133,7 +134,7 @@ export default function OwnerDashboard() {
             }`}
             title={sidebarCollapsed ? 'Verify Meal' : ''}
           >
-            <QrCode className="w-5 h-5 flex-shrink-0" />
+            <Hash className="w-5 h-5 flex-shrink-0" />
             {!sidebarCollapsed && <span className="font-medium">Verify Meal</span>}
           </button>
 
@@ -195,8 +196,9 @@ export default function OwnerDashboard() {
           {!sidebarCollapsed ? (
             <>
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 bg-primary/10 rounded-full overflow-hidden flex items-center justify-center">
+                  <div className="w-10 h-10 bg-primary/10 rounded-full overflow-hidden flex items-center justify-center">
                   {profile?.photo_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img 
                       src={profile.photo_url} 
                       alt={profile.full_name || 'Owner'} 
@@ -294,7 +296,7 @@ export default function OwnerDashboard() {
                       </div>
                       <div className="max-h-96 overflow-y-auto">
                         {notifications.length > 0 ? (
-                          notifications.map((notification: any, index: number) => (
+                          notifications.map((notification, index: number) => (
                             <div key={index} className="p-4 hover:bg-accent cursor-pointer border-b border-border">
                               <div className="flex items-start gap-3">
                                 <div className={`w-2 h-2 rounded-full mt-2 ${
@@ -317,7 +319,7 @@ export default function OwnerDashboard() {
                             <Bell className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
                             <p className="text-sm text-muted-foreground">No notifications yet</p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              You'll see updates here when they arrive
+                              You&apos;ll see updates here when they arrive
                             </p>
                           </div>
                         )}
@@ -377,7 +379,7 @@ export default function OwnerDashboard() {
                                 setShowSearch(false)
                               }}
                             >
-                              <QrCode className="w-4 h-4" />
+                              <Hash className="w-4 h-4" />
                               Verify Meal
                             </button>
                             <button 
@@ -414,13 +416,13 @@ export default function OwnerDashboard() {
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-8 bg-gray-50 dark:bg-zinc-950">
           {activeTab === 'dashboard' && (
-            <DashboardContent stats={todayStats} logs={logs} isLoading={isLoading} profile={profile} />
+            <DashboardContent stats={todayStats} logs={logs || null} isLoading={isLoading} />
           )}
           {activeTab === 'verify' && <VerifyContent />}
           {activeTab === 'students' && <StudentsContent />}
           {activeTab === 'analytics' && <AnalyticsContent />}
           {activeTab === 'settings' && <SettingsContent />}
-          {activeTab === 'profile' && <ProfileContent profile={profile} />}
+          {activeTab === 'profile' && <ProfileContent profile={profile || null} />}
           {activeTab === 'notifications' && <NotificationsContent notifications={notifications} />}
         </div>
       </main>
@@ -429,7 +431,22 @@ export default function OwnerDashboard() {
 }
 
 // Dashboard Content Component
-function DashboardContent({ stats, logs, isLoading, profile }: any) {
+function DashboardContent({ stats, logs, isLoading }: {
+  stats: { totalMeals: number; lunchCount: number; dinnerCount: number; revenue: number }
+  logs: Array<{
+    log_id: string
+    created_at: string
+    meal_type: string
+    status: string
+    access_method: string
+    users?: {
+      full_name: string
+      unique_short_id: number
+      photo_url: string | null
+    }
+  }> | null
+  isLoading: boolean
+}) {
   const [activeStudents, setActiveStudents] = useState(0)
   const [leaveRequests, setLeaveRequests] = useState(0)
   const [showFilterMenu, setShowFilterMenu] = useState(false)
@@ -463,11 +480,11 @@ function DashboardContent({ stats, logs, isLoading, profile }: any) {
     try {
       const filteredLogs = mealTypeFilter === 'all' 
         ? logs 
-        : logs?.filter((l: any) => l.meal_type === mealTypeFilter)
+        : logs?.filter((l) => l.meal_type === mealTypeFilter)
 
       const csvContent = [
         ['Date', 'Time', 'Student Name', 'Student ID', 'Meal Type', 'Status', 'Access Method'].join(','),
-        ...(filteredLogs || []).map((log: any) => [
+        ...(filteredLogs || []).map((log) => [
           new Date(log.created_at).toLocaleDateString('en-IN'),
           new Date(log.created_at).toLocaleTimeString('en-IN'),
           log.users?.full_name || 'Unknown',
@@ -493,7 +510,7 @@ function DashboardContent({ stats, logs, isLoading, profile }: any) {
 
   const filteredLogs = mealTypeFilter === 'all' 
     ? logs 
-    : logs?.filter((l: any) => l.meal_type === mealTypeFilter)
+    : logs?.filter((l) => l.meal_type === mealTypeFilter)
 
   return (
     <div className="space-y-6">
@@ -526,7 +543,7 @@ function DashboardContent({ stats, logs, isLoading, profile }: any) {
             </span>
           </div>
           <h3 className="text-3xl font-bold mb-1">₹{stats.revenue}</h3>
-          <p className="text-sm text-muted-foreground">Today's Revenue</p>
+          <p className="text-sm text-muted-foreground">Today&apos;s Revenue</p>
           <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
             <span>₹50 per meal</span>
           </div>
@@ -655,13 +672,14 @@ function DashboardContent({ stats, logs, isLoading, profile }: any) {
             </div>
           ) : logs && filteredLogs && filteredLogs.length > 0 ? (
             <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-              {filteredLogs.map((log: any) => (
+              {filteredLogs.map((log) => (
                 <div
                   key={log.log_id}
                   className="flex items-center gap-4 p-4 bg-accent/50 hover:bg-accent rounded-lg transition-all animate-in slide-in-from-top-2 fade-in duration-300 border border-border/50"
                 >
                   <div className="w-12 h-12 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-2 border-primary/20">
                     {log.users?.photo_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={log.users.photo_url}
                         alt={log.users.full_name || 'Student'}
@@ -728,83 +746,22 @@ function DashboardContent({ stats, logs, isLoading, profile }: any) {
 
 // Verify Content Component
 function VerifyContent() {
-  const [verifyMethod, setVerifyMethod] = useState<'qr' | 'manual'>('manual')
-  const [showQRScanner, setShowQRScanner] = useState(false)
-
   return (
-    <>
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Method Selection */}
-        <div className="bg-white dark:bg-zinc-900 rounded-xl p-6 border border-border shadow-sm">
-          <h3 className="text-lg font-semibold mb-4">Select Verification Method</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={() => setVerifyMethod('qr')}
-              className={`p-6 rounded-lg border-2 transition-all ${
-                verifyMethod === 'qr'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
-            >
-              <Scan className="w-8 h-8 mx-auto mb-3 text-primary" />
-              <p className="font-semibold">Scan QR Code</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Fast verification using student's QR token
-              </p>
-            </button>
-
-            <button
-              onClick={() => setVerifyMethod('manual')}
-              className={`p-6 rounded-lg border-2 transition-all ${
-                verifyMethod === 'manual'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
-            >
-              <Hash className="w-8 h-8 mx-auto mb-3 text-primary" />
-              <p className="font-semibold">Manual ID Entry</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Enter student's unique short ID
-              </p>
-            </button>
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Verification Interface */}
+      <div className="bg-white dark:bg-zinc-900 rounded-xl p-8 border border-border shadow-sm">
+        <div className="mb-6 text-center">
+          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Hash className="w-8 h-8 text-primary" />
           </div>
+          <h3 className="text-xl font-semibold mb-2">Manual ID Verification</h3>
+          <p className="text-muted-foreground">
+            Enter student&apos;s unique short ID to verify and log meals
+          </p>
         </div>
-
-        {/* Verification Interface */}
-        {verifyMethod === 'qr' ? (
-          <div className="bg-white dark:bg-zinc-900 rounded-xl p-8 border border-border shadow-sm text-center">
-            <div className="w-64 h-64 mx-auto bg-muted rounded-lg flex items-center justify-center mb-6">
-              <QrCode className="w-24 h-24 text-muted-foreground" />
-            </div>
-            <h3 className="text-xl font-semibold mb-2">Ready to Scan</h3>
-            <p className="text-muted-foreground mb-6">
-              Position the student's QR code within the frame
-            </p>
-            <Button size="lg" className="px-8" onClick={() => setShowQRScanner(true)}>
-              <Scan className="w-5 h-5 mr-2" />
-              Start Camera
-            </Button>
-            <p className="text-xs text-muted-foreground mt-4">
-              Camera access required for QR scanning
-            </p>
-          </div>
-        ) : (
-          <div className="bg-white dark:bg-zinc-900 rounded-xl p-8 border border-border shadow-sm">
-            <ManualVerify />
-          </div>
-        )}
+        <ManualVerify />
       </div>
-
-      {/* QR Scanner Modal */}
-      {showQRScanner && (
-        <QRScanner
-          onClose={() => setShowQRScanner(false)}
-          onSuccess={(data) => {
-            console.log('Meal verified:', data)
-          }}
-        />
-      )}
-    </>
+    </div>
   )
 }
 
@@ -824,7 +781,15 @@ function SettingsContent() {
 }
 
 // Profile Content Component
-function ProfileContent({ profile }: any) {
+function ProfileContent({ profile }: {
+  profile: {
+    id: string
+    full_name: string
+    unique_short_id: number
+    photo_url?: string | null
+    created_at?: string
+  } | null
+}) {
   const [isEditing, setIsEditing] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [formData, setFormData] = useState({
@@ -853,6 +818,7 @@ function ProfileContent({ profile }: any) {
             <div className="relative group cursor-pointer">
               <div className="w-32 h-32 bg-white dark:bg-zinc-900 rounded-full overflow-hidden flex items-center justify-center border-4 border-white dark:border-zinc-900 shadow-lg">
                 {profile?.photo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={profile.photo_url}
                     alt={profile.full_name || 'Owner'}
@@ -867,7 +833,7 @@ function ProfileContent({ profile }: any) {
               {/* Edit Photo Overlay */}
               <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="text-center">
-                  <Camera className="w-8 h-8 text-white mx-auto mb-1" />
+                  <Upload className="w-8 h-8 text-white mx-auto mb-1" />
                   <p className="text-xs text-white font-medium">Change Photo</p>
                 </div>
               </div>
@@ -994,7 +960,14 @@ function ProfileContent({ profile }: any) {
 }
 
 // Notifications Content Component
-function NotificationsContent({ notifications }: any) {
+function NotificationsContent({ notifications }: {
+  notifications: Array<{
+    type: string
+    title: string
+    message: string
+    time: string
+  }>
+}) {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
@@ -1020,7 +993,7 @@ function NotificationsContent({ notifications }: any) {
       <div className="bg-white dark:bg-zinc-900 rounded-xl border border-border shadow-sm overflow-hidden">
         {notifications.length > 0 ? (
           <div className="divide-y divide-border">
-            {notifications.map((notification: any, index: number) => (
+            {notifications.map((notification, index: number) => (
               <div key={index} className="p-6 hover:bg-accent transition-colors cursor-pointer">
                 <div className="flex items-start gap-4">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -1053,7 +1026,7 @@ function NotificationsContent({ notifications }: any) {
             </div>
             <h4 className="text-lg font-semibold mb-2">No notifications yet</h4>
             <p className="text-sm text-muted-foreground">
-              You'll see important updates and alerts here when they arrive
+              You&apos;ll see important updates and alerts here when they arrive
             </p>
           </div>
         )}

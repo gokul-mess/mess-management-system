@@ -1,16 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import {
   TrendingUp,
-  TrendingDown,
   Users,
   DollarSign,
   Calendar,
   Download,
-  Filter,
   ArrowUpRight,
   ArrowDownRight,
   Utensils,
@@ -57,51 +55,14 @@ interface ChartData {
 export function AnalyticsDashboard() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [fetchError, setFetchError] = useState<any>(null)
+  const [fetchError, setFetchError] = useState<{ message: string } | null>(null)
   const [timeRange, setTimeRange] = useState<'week' | 'month' | 'year'>('week')
   const [weeklyChartData, setWeeklyChartData] = useState<ChartData[]>([])
   const [monthlyChartData, setMonthlyChartData] = useState<ChartData[]>([])
   const supabase = createClient()
   const { loading: exporting, error: exportError, success: exportSuccess, execute: executeExport, clearMessages } = useAsyncOperation('Export Report')
 
-  useEffect(() => {
-    fetchAnalytics()
-  }, [timeRange])
-
-  const handleExportReport = async () => {
-    clearMessages()
-    
-    await executeExport(async () => {
-      const reportData = [
-        ['Gokul Mess - Analytics Report'],
-        [`Generated: ${new Date().toLocaleString('en-IN')}`],
-        [''],
-        ['Metric', 'Value'],
-        ['Today Meals', analytics?.todayMeals || 0],
-        ['Weekly Meals', analytics?.weeklyMeals || 0],
-        ['Monthly Meals', analytics?.monthlyMeals || 0],
-        ['Today Revenue', `₹${analytics?.todayRevenue || 0}`],
-        ['Weekly Revenue', `₹${analytics?.weeklyRevenue || 0}`],
-        ['Monthly Revenue', `₹${analytics?.monthlyRevenue || 0}`],
-        ['Active Students', analytics?.activeStudents || 0],
-        ['Average Meals/Day', analytics?.averageMealsPerDay || 0],
-        [''],
-        ['Meal Distribution'],
-        ['Lunch', analytics?.mealTypeDistribution.lunch || 0],
-        ['Dinner', analytics?.mealTypeDistribution.dinner || 0]
-      ].map(row => Array.isArray(row) ? row.join(',') : row).join('\n')
-
-      const blob = new Blob([reportData], { type: 'text/csv' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `analytics-report-${new Date().toISOString().split('T')[0]}.csv`
-      a.click()
-      window.URL.revokeObjectURL(url)
-    })
-  }
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setIsLoading(true)
     setFetchError(null)
     
@@ -202,6 +163,43 @@ export function AnalyticsDashboard() {
     } finally {
       setIsLoading(false)
     }
+  }, [supabase])
+
+  useEffect(() => {
+    fetchAnalytics()
+  }, [timeRange, fetchAnalytics])
+
+  const handleExportReport = async () => {
+    clearMessages()
+    
+    await executeExport(async () => {
+      const reportData = [
+        ['Gokul Mess - Analytics Report'],
+        [`Generated: ${new Date().toLocaleString('en-IN')}`],
+        [''],
+        ['Metric', 'Value'],
+        ['Today Meals', analytics?.todayMeals || 0],
+        ['Weekly Meals', analytics?.weeklyMeals || 0],
+        ['Monthly Meals', analytics?.monthlyMeals || 0],
+        ['Today Revenue', `₹${analytics?.todayRevenue || 0}`],
+        ['Weekly Revenue', `₹${analytics?.weeklyRevenue || 0}`],
+        ['Monthly Revenue', `₹${analytics?.monthlyRevenue || 0}`],
+        ['Active Students', analytics?.activeStudents || 0],
+        ['Average Meals/Day', analytics?.averageMealsPerDay || 0],
+        [''],
+        ['Meal Distribution'],
+        ['Lunch', analytics?.mealTypeDistribution.lunch || 0],
+        ['Dinner', analytics?.mealTypeDistribution.dinner || 0]
+      ].map(row => Array.isArray(row) ? row.join(',') : row).join('\n')
+
+      const blob = new Blob([reportData], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `analytics-report-${new Date().toISOString().split('T')[0]}.csv`
+      a.click()
+      window.URL.revokeObjectURL(url)
+    })
   }
 
   if (isLoading) {
@@ -239,7 +237,7 @@ export function AnalyticsDashboard() {
         <div className="flex gap-2">
           <select
             value={timeRange}
-            onChange={(e) => setTimeRange(e.target.value as any)}
+            onChange={(e) => setTimeRange(e.target.value as 'week' | 'month' | 'year')}
             className="px-4 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="week">Last 7 Days</option>
@@ -465,7 +463,7 @@ export function AnalyticsDashboard() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h4 className="text-lg font-semibold">Meal Type Distribution</h4>
-              <p className="text-sm text-muted-foreground">Today's breakdown</p>
+              <p className="text-sm text-muted-foreground">Today&apos;s breakdown</p>
             </div>
             <PieChart className="w-5 h-5 text-muted-foreground" />
           </div>

@@ -1,84 +1,73 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { UserCheck, Loader2, CheckCircle, XCircle, User } from 'lucide-react'
+import { UserCheck, Loader2, CheckCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
-import { validateRequired } from '@/lib/error-handler'
 import { ErrorMessage } from '@/components/ui/error-message'
 
 interface ManualVerifyProps {
-  onSuccess?: (data: any) => void
+  onSuccess?: (data: unknown) => void
 }
 
 export function ManualVerify({ onSuccess }: ManualVerifyProps) {
   const [shortId, setShortId] = useState('')
-  const [student, setStudent] = useState<any>(null)
-  const [verificationResult, setVerificationResult] = useState<any>(null)
+  const [lastVerified, setLastVerified] = useState<{
+    name: string
+    id: number
+    photo: string | null
+    mealType: string
+  } | null>(null)
+  const [showSuccess, setShowSuccess] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
-  const { loading: searching, error: searchError, execute: executeSearch, clearMessages: clearSearchMessages } = useAsyncOperation('Search Student')
-  const { loading: verifying, error: verifyError, execute: executeVerify, clearMessages: clearVerifyMessages } = useAsyncOperation('Verify Meal')
+  const { loading, error, execute, clearMessages } = useAsyncOperation('Verify Meal')
 
-  const searchStudent = async () => {
-    clearSearchMessages()
-    clearVerifyMessages()
+  // Fast verification - combines search and log in one operation
+  const quickVerify = async () => {
+    if (!shortId || shortId.trim() === '') return
     
-    const validationError = validateRequired({ shortId }, ['shortId'])
-    if (validationError) return
+    clearMessages()
+    setShowSuccess(false)
 
-    if (shortId.length < 3) {
-      return
-    }
+    await execute(async () => {
+      // Get current hour to determine meal type
+      const hour = new Date().getHours()
+      const mealType = hour < 16 ? 'LUNCH' : 'DINNER'
+      const today = new Date().toISOString().split('T')[0]
 
-    setStudent(null)
-
-    await executeSearch(async () => {
-      const { data, error } = await supabase
+      // Single optimized query: search student and check if already logged
+      const { data: student, error: studentError } = await supabase
         .from('users')
-        .select('*')
+        .select('id, full_name, unique_short_id, photo_url, is_active')
         .eq('unique_short_id', parseInt(shortId))
         .eq('role', 'STUDENT')
         .single()
 
-      if (error || !data) {
+      if (studentError || !student) {
         throw new Error('Student not found. Please check the ID.')
       }
 
-      setStudent(data)
-    })
-  }
+      if (!student.is_active) {
+        throw new Error('Student subscription is inactive. Please renew.')
+      }
 
-  const verifyMeal = async () => {
-    if (!student) return
-
-    clearVerifyMessages()
-
-    await executeVerify(async () => {
-      // Get current hour to determine meal type
-      const hour = new Date().getHours()
-      const mealType = hour < 16 ? 'LUNCH' : 'DINNER'
-
-      // Check if already logged today
-      const today = new Date().toISOString().split('T')[0]
+      // Check if already logged (in parallel with student fetch would be ideal, but keeping simple)
       const { data: existingLog } = await supabase
         .from('daily_logs')
-        .select('*')
+        .select('log_id')
         .eq('user_id', student.id)
         .eq('date', today)
         .eq('meal_type', mealType)
-        .single()
+        .maybeSingle()
 
       if (existingLog) {
-        setVerificationResult({
-          success: false,
-          message: `${mealType} already logged for this student today`
-        })
-        throw new Error(`${mealType} already logged for this student today`)
+        throw new Error(`${mealType} already logged for ${student.full_name} today`)
       }
 
-      // Insert into daily_logs
-      const { data, error } = await supabase
+      // Insert meal log
+      const { error: insertError } = await supabase
         .from('daily_logs')
         .insert({
           user_id: student.id,
@@ -86,213 +75,125 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
           status: 'CONSUMED',
           access_method: 'SELF_ID'
         })
-        .select('*, users(full_name, unique_short_id, photo_url)')
-        .single()
 
-      if (error) throw error
+      if (insertError) throw insertError
 
-      setVerificationResult({
-        success: true,
-        data
+      // Show success briefly
+      setLastVerified({
+        name: student.full_name,
+        id: student.unique_short_id,
+        photo: student.photo_url,
+        mealType
       })
+      setShowSuccess(true)
 
       if (onSuccess) {
-        onSuccess(data)
+        onSuccess({ student, mealType })
       }
 
-      // Reset after 3 seconds
+      // Quick reset for next student (1 second instead of 3)
       setTimeout(() => {
+        setShowSuccess(false)
         setShortId('')
-        setStudent(null)
-        setVerificationResult(null)
-        clearVerifyMessages()
-      }, 3000)
+        // Auto-focus back to input for next student
+        if (inputRef.current) {
+          inputRef.current.focus()
+        }
+      }, 1000)
     })
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !student) {
-      searchStudent()
-    } else if (e.key === 'Enter' && student) {
-      verifyMeal()
+    if (e.key === 'Enter' && shortId && !loading) {
+      quickVerify()
     }
   }
 
   return (
     <div className="space-y-6">
-      {!verificationResult ? (
-        <>
-          {/* ID Input */}
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">
-                Student Unique Short ID
-              </label>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  value={shortId}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, '').slice(0, 3)
-                    setShortId(value)
-                    clearSearchMessages()
-                    clearVerifyMessages()
-                    setStudent(null)
-                  }}
-                  onKeyPress={handleKeyPress}
-                  placeholder="e.g., 101"
-                  className="flex-1 px-6 py-4 rounded-lg border border-input bg-background text-center text-3xl font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-ring"
-                  maxLength={3}
-                  disabled={searching || verifying}
-                  autoFocus
-                />
-                <Button
-                  onClick={searchStudent}
-                  disabled={searching || verifying || shortId.length < 3}
-                  size="lg"
-                  className="px-8"
-                >
-                  {searching ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    'Search'
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            {searchError && (
-              <ErrorMessage 
-                error={searchError} 
-                onDismiss={clearSearchMessages}
-                onRetry={searchStudent}
-              />
-            )}
-
-            {verifyError && !verificationResult && (
-              <ErrorMessage 
-                error={verifyError} 
-                onDismiss={clearVerifyMessages}
-              />
-            )}
-          </div>
-
-          {/* Student Preview */}
-          {student && (
-            <div className="bg-accent/50 border-2 border-primary/20 rounded-xl p-6 animate-in slide-in-from-top-2 fade-in">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-20 h-20 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-4 border-primary/20">
-                  {student.photo_url ? (
-                    <img
-                      src={student.photo_url}
-                      alt={student.full_name || 'Student'}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <User className="w-10 h-10 text-primary" />
-                  )}
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-2xl font-bold mb-1">{student.full_name}</h4>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-mono bg-primary/10 text-primary px-3 py-1 rounded">
-                      ID: {student.unique_short_id}
-                    </span>
-                    <span className={`text-sm px-3 py-1 rounded ${
-                      student.is_active
-                        ? 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400'
-                        : 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400'
-                    }`}>
-                      {student.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {student.is_active ? (
-                <Button
-                  onClick={verifyMeal}
-                  disabled={verifying}
-                  size="lg"
-                  className="w-full"
-                >
-                  {verifying ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Verifying...
-                    </>
-                  ) : (
-                    <>
-                      <UserCheck className="w-5 h-5 mr-2" />
-                      Verify & Log Meal
-                    </>
-                  )}
-                </Button>
+      {/* Always show input for fast entry */}
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Student ID - Press Enter to Verify
+          </label>
+          <div className="flex gap-3">
+            <input
+              ref={inputRef}
+              type="text"
+              value={shortId}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, '')
+                setShortId(value)
+                clearMessages()
+              }}
+              onKeyPress={handleKeyPress}
+              placeholder="Enter ID & press Enter"
+              className="flex-1 px-6 py-4 rounded-lg border-2 border-input bg-background text-center text-4xl font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
+              disabled={loading}
+              autoFocus
+            />
+            <Button
+              onClick={quickVerify}
+              disabled={loading || !shortId || shortId.trim() === ''}
+              size="lg"
+              className="px-8 text-lg"
+            >
+              {loading ? (
+                <Loader2 className="w-6 h-6 animate-spin" />
               ) : (
-                <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-center">
-                  <p className="text-sm text-destructive font-medium">
-                    This student's subscription is inactive
-                  </p>
-                </div>
+                <>
+                  <UserCheck className="w-6 h-6 mr-2" />
+                  Verify
+                </>
               )}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            {loading ? 'Verifying...' : 'Type ID and press Enter for fastest verification'}
+          </p>
+        </div>
+
+        {error && (
+          <ErrorMessage 
+            error={error} 
+            onDismiss={clearMessages}
+          />
+        )}
+      </div>
+
+      {/* Compact success indicator */}
+      {showSuccess && lastVerified && (
+        <div className="bg-green-50 dark:bg-green-900/20 border-2 border-green-500 rounded-xl p-4 animate-in slide-in-from-top-2 fade-in">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="font-bold text-green-900 dark:text-green-100">
+                ✓ {lastVerified.name}
+              </p>
+              <p className="text-sm text-green-700 dark:text-green-300">
+                ID: {lastVerified.id} • {lastVerified.mealType}
+              </p>
             </div>
-          )}
-        </>
-      ) : (
-        <div className="text-center py-12 animate-in zoom-in fade-in">
-          {verificationResult.success ? (
-            <>
-              <div className="w-24 h-24 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                <CheckCircle className="w-16 h-16 text-green-600 dark:text-green-400" />
-              </div>
-              <h4 className="text-3xl font-bold text-green-600 dark:text-green-400 mb-3">
-                Verified Successfully!
-              </h4>
-              {verificationResult.data?.users && (
-                <div className="flex items-center justify-center gap-3 mb-4">
-                  <div className="w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-2 border-primary/20">
-                    {verificationResult.data.users.photo_url ? (
-                      <img
-                        src={verificationResult.data.users.photo_url}
-                        alt={verificationResult.data.users.full_name || 'Student'}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-xl font-bold text-primary">
-                        {verificationResult.data.users.full_name?.charAt(0) || '?'}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-left">
-                    <p className="text-lg font-semibold">{verificationResult.data.users.full_name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      ID: {verificationResult.data.users.unique_short_id}
-                    </p>
-                  </div>
-                </div>
-              )}
-              <p className="text-lg text-muted-foreground mb-2">
-                Meal logged successfully
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {verificationResult.data?.meal_type} • {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="w-24 h-24 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                <XCircle className="w-16 h-16 text-red-600 dark:text-red-400" />
-              </div>
-              <h4 className="text-3xl font-bold text-red-600 dark:text-red-400 mb-3">
-                Verification Failed
-              </h4>
-              <p className="text-lg text-muted-foreground">
-                {verificationResult.message}
-              </p>
-            </>
-          )}
+          </div>
         </div>
       )}
+
+      {/* Quick stats */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-accent/50 rounded-lg p-4 text-center">
+          <p className="text-2xl font-bold text-primary">
+            {new Date().getHours() < 16 ? 'LUNCH' : 'DINNER'}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">Current Meal</p>
+        </div>
+        <div className="bg-accent/50 rounded-lg p-4 text-center">
+          <p className="text-2xl font-bold">
+            {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">Current Time</p>
+        </div>
+      </div>
     </div>
   )
 }

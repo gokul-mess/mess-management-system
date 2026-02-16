@@ -5,7 +5,6 @@ import { useProfile } from '@/hooks/use-profile'
 import { useDailyLogs } from '@/hooks/use-daily-logs'
 import { Button } from '@/components/ui/button'
 import { 
-  QrCode, 
   Calendar, 
   History, 
   User,
@@ -22,14 +21,14 @@ import {
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
-import { validateRequired, validateDateRange, parseError } from '@/lib/error-handler'
+import { validateRequired, validateDateRange } from '@/lib/error-handler'
 import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 import { LoadingState } from '@/components/ui/loading-state'
 
 export default function StudentDashboard() {
   const { data: profile } = useProfile()
   const { logs } = useDailyLogs()
-  const [activeTab, setActiveTab] = useState<'home' | 'qr' | 'leave' | 'history' | 'profile'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'leave' | 'history' | 'profile'>('home')
   const [showParcelOTP, setShowParcelOTP] = useState(false)
   const router = useRouter()
   const supabase = createClient()
@@ -81,7 +80,7 @@ export default function StudentDashboard() {
       <main className="flex-1 overflow-y-auto px-4 py-6 pb-24">
         {activeTab === 'home' && (
           <HomeContent 
-            profile={profile} 
+            profile={profile || null} 
             hasLunch={hasLunch} 
             hasDinner={hasDinner}
             daysRemaining={daysRemaining}
@@ -90,10 +89,9 @@ export default function StudentDashboard() {
             setShowParcelOTP={setShowParcelOTP}
           />
         )}
-        {activeTab === 'qr' && <QRContent />}
         {activeTab === 'leave' && <LeaveContent />}
-        {activeTab === 'history' && <HistoryContent profile={profile} logs={logs} />}
-        {activeTab === 'profile' && <ProfileContent profile={profile} onSignOut={handleSignOut} />}
+        {activeTab === 'history' && <HistoryContent profile={profile || null} logs={logs || null} />}
+        {activeTab === 'profile' && <ProfileContent profile={profile || null} onSignOut={handleSignOut} />}
       </main>
 
       {/* Bottom Navigation */}
@@ -110,18 +108,6 @@ export default function StudentDashboard() {
             >
               <Utensils className="w-5 h-5" />
               <span className="text-xs font-medium">Home</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('qr')}
-              className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
-                activeTab === 'qr'
-                  ? 'text-primary bg-primary/10'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <QrCode className="w-5 h-5" />
-              <span className="text-xs font-medium">QR Code</span>
             </button>
 
             <button
@@ -155,7 +141,15 @@ export default function StudentDashboard() {
 }
 
 // Home Content Component
-function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, showParcelOTP, setShowParcelOTP }: any) {
+function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, showParcelOTP, setShowParcelOTP }: {
+  profile: { id: string; full_name?: string; unique_short_id?: number; photo_url?: string | null } | null
+  hasLunch: boolean
+  hasDinner: boolean
+  daysRemaining: number
+  onNavigate: (tab: 'home' | 'leave' | 'history' | 'profile') => void
+  showParcelOTP: boolean
+  setShowParcelOTP: (show: boolean) => void
+}) {
   const supabase = createClient()
   const [parcelOTP, setParcelOTP] = useState<string | null>(null)
   const [otpExpiry, setOtpExpiry] = useState<Date | null>(null)
@@ -179,7 +173,7 @@ function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, 
       const otp = Math.floor(1000 + Math.random() * 9000).toString()
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
 
-      const { data, error: insertError } = await supabase
+      const { error: insertError } = await supabase
         .from('parcel_otp')
         .insert({
           student_id: profile.id,
@@ -221,8 +215,9 @@ function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, 
             <h2 className="text-2xl font-bold">{profile?.full_name || 'Student'}</h2>
             <p className="text-muted-foreground text-sm mt-1">ID: #{profile?.unique_short_id || '---'}</p>
           </div>
-          <div className="w-16 h-16 bg-gradient-to-br from-primary to-primary/70 rounded-lg overflow-hidden flex items-center justify-center border border-border shadow-sm">
+              <div className="w-16 h-16 bg-gradient-to-br from-primary to-primary/70 rounded-lg overflow-hidden flex items-center justify-center border border-border shadow-sm">
             {profile?.photo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={profile.photo_url}
                 alt={profile.full_name || 'Student'}
@@ -259,7 +254,7 @@ function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, 
 
       {/* Today's Meals */}
       <div className="bg-white dark:bg-zinc-900 rounded-xl p-6 border border-border shadow-sm">
-        <h3 className="text-lg font-semibold mb-4">Today's Meals</h3>
+        <h3 className="text-lg font-semibold mb-4">Today&apos;s Meals</h3>
         <div className="grid grid-cols-2 gap-4">
           <div className={`p-4 rounded-lg border ${
             hasLunch 
@@ -303,22 +298,6 @@ function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, 
       <div className="space-y-3">
         <h3 className="text-lg font-semibold">Quick Actions</h3>
         
-        <button
-          onClick={() => onNavigate('qr')}
-          className="w-full bg-white dark:bg-zinc-900 rounded-lg p-4 border border-border shadow-sm hover:shadow-md hover:border-primary/50 transition-all flex items-center justify-between group"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-              <QrCode className="w-6 h-6 text-primary" />
-            </div>
-            <div className="text-left">
-              <p className="font-semibold">Generate Meal Token</p>
-              <p className="text-xs text-muted-foreground">Show QR code for verification</p>
-            </div>
-          </div>
-          <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:translate-x-1 transition-transform" />
-        </button>
-
         <button
           onClick={generateParcelOTP}
           disabled={loading}
@@ -434,105 +413,18 @@ function HomeContent({ profile, hasLunch, hasDinner, daysRemaining, onNavigate, 
   )
 }
 
-// QR Content Component
-function QRContent() {
-  const { data: profile } = useProfile()
-  const [QRCodeComponent, setQRCodeComponent] = useState<any>(null)
-
-  // Dynamically import QRCode component (client-side only)
-  useState(() => {
-    import('qrcode.react').then((mod) => {
-      setQRCodeComponent(() => mod.QRCodeSVG)
-    })
-  })
-
-  // Check if subscription is active
-  const isActive = profile?.subscription_end_date 
-    ? new Date(profile.subscription_end_date) > new Date()
-    : false
-
-  // Generate QR data with student information
-  const qrData = JSON.stringify({
-    id: profile?.id,
-    shortId: profile?.unique_short_id,
-    name: profile?.full_name,
-    timestamp: Date.now(),
-  })
-
-  return (
-    <div className="space-y-6">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold mb-2">Meal Token</h2>
-        <p className="text-muted-foreground">Show this QR code to the mess owner</p>
-      </div>
-
-      {!isActive ? (
-        // Subscription Expired State
-        <div className="bg-white dark:bg-zinc-900 rounded-xl p-8 border border-border shadow-sm">
-          <div className="text-center py-12">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-red-500/10 rounded-full mb-4">
-              <XCircle className="w-10 h-10 text-red-600 dark:text-red-400" />
-            </div>
-            <h3 className="text-xl font-bold mb-2">Subscription Expired</h3>
-            <p className="text-muted-foreground mb-6">
-              Your subscription has expired. Please renew your subscription to generate meal tokens.
-            </p>
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
-              <p className="text-sm text-red-700 dark:text-red-400">
-                <strong>Note:</strong> QR code generation is disabled for expired subscriptions. Contact the mess owner to renew your subscription.
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : (
-        // Active Subscription - Show QR Code
-        <div className="bg-white dark:bg-zinc-900 rounded-xl p-8 border border-border shadow-sm">
-          <div className="flex items-center justify-center mb-6 bg-white p-6 rounded-lg border border-border">
-            {QRCodeComponent && profile ? (
-              <QRCodeComponent
-                value={qrData}
-                size={256}
-                level="H"
-                includeMargin={true}
-                className="w-full h-auto max-w-[256px]"
-              />
-            ) : (
-              <div className="w-64 h-64 bg-accent rounded-lg flex items-center justify-center">
-                <div className="text-center">
-                  <QrCode className="w-16 h-16 text-muted-foreground mx-auto mb-2 animate-pulse" />
-                  <p className="text-sm text-muted-foreground">Loading QR Code...</p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="text-center space-y-2">
-            <p className="font-semibold text-lg">{profile?.full_name}</p>
-            <p className="text-sm text-muted-foreground">ID: #{profile?.unique_short_id}</p>
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20">
-              <CheckCircle className="w-4 h-4" />
-              Active Subscription
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-accent/50 border border-border rounded-lg p-4">
-        <p className="text-sm text-foreground">
-          <strong>Note:</strong> This QR code is unique to you and refreshes with each view. Do not share screenshots with others.
-        </p>
-      </div>
-    </div>
-  )
-}
-
 // Leave Content Component
 function LeaveContent() {
   const { data: profile } = useProfile()
   const supabase = createClient()
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [leaves, setLeaves] = useState<any[]>([])
+  const [leaves, setLeaves] = useState<Array<{
+    leave_id: string
+    start_date: string
+    end_date: string
+    status: string
+  }>>([])
   
   const {
     loading,
@@ -665,7 +557,12 @@ function LeaveContent() {
             <h3 className="font-semibold">Recent Leave Requests</h3>
           </div>
           <div className="divide-y divide-border">
-            {leaves.map((leave) => (
+            {leaves.map((leave: {
+              leave_id: string
+              start_date: string
+              end_date: string
+              status: string
+            }) => (
               <div key={leave.leave_id} className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -702,8 +599,17 @@ function LeaveContent() {
 }
 
 // History Content Component (Placeholder)
-function HistoryContent({ profile, logs }: any) {
-  const userLogs = logs?.filter((log: any) => log.user_id === profile?.id) || []
+function HistoryContent({ profile, logs }: {
+  profile: { id: string } | null
+  logs: Array<{
+    log_id: string
+    user_id: string
+    meal_type: string
+    status: string
+    created_at: string
+  }> | null | undefined
+}) {
+  const userLogs = logs?.filter((log) => log.user_id === profile?.id) || []
 
   return (
     <div className="space-y-6">
@@ -715,7 +621,7 @@ function HistoryContent({ profile, logs }: any) {
       <div className="bg-white dark:bg-zinc-900 rounded-xl border border-border shadow-sm overflow-hidden">
         {userLogs.length > 0 ? (
           <div className="divide-y divide-border">
-            {userLogs.slice(0, 10).map((log: any) => (
+            {userLogs.slice(0, 10).map((log) => (
               <div key={log.log_id} className="p-4 hover:bg-accent/50 transition-colors">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -751,7 +657,23 @@ function HistoryContent({ profile, logs }: any) {
 }
 
 // Profile Content Component
-function ProfileContent({ profile, onSignOut }: any) {
+function ProfileContent({ profile, onSignOut }: {
+  profile: {
+    id: string
+    full_name?: string
+    unique_short_id?: number
+    photo_url?: string | null
+    phone?: string | null
+    address?: string | null
+    meal_plan?: string | null
+    subscription_start_date?: string | null
+    subscription_end_date?: string | null
+    is_active?: boolean
+    photo_update_allowed?: boolean
+    permission_expires_at?: string | null
+  } | null
+  onSignOut: () => void
+}) {
   const supabase = createClient()
   const [showPhotoUpload, setShowPhotoUpload] = useState(false)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
@@ -797,8 +719,9 @@ function ProfileContent({ profile, onSignOut }: any) {
       // Upload to Supabase Storage (if configured)
       // For now, we'll show an error that photo upload requires owner permission
       throw new Error('Photo upload requires owner permission. Please contact the mess owner to update your photo.')
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error.message })
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to upload photo'
+      setMessage({ type: 'error', text: errorMessage })
     } finally {
       setLoading(false)
       setShowPhotoUpload(false)
@@ -827,6 +750,7 @@ function ProfileContent({ profile, onSignOut }: any) {
             <div className="relative group">
               <div className="w-24 h-24 bg-white dark:bg-zinc-900 rounded-lg overflow-hidden flex items-center justify-center border-4 border-white dark:border-zinc-900 shadow-lg">
                 {profile?.photo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={profile.photo_url}
                     alt={profile.full_name || 'Student'}
@@ -1040,6 +964,7 @@ function ProfileContent({ profile, onSignOut }: any) {
             <div className="space-y-4">
               {photoPreview ? (
                 <div className="flex justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photoPreview}
                     alt="Preview"

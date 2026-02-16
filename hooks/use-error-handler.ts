@@ -3,15 +3,15 @@ import { parseError, logError, ErrorResult } from '@/lib/error-handler'
 
 interface UseErrorHandlerReturn {
   error: ErrorResult | null
-  setError: (error: any) => void
+  setError: (error: unknown) => void
   clearError: () => void
-  handleError: (error: any, context?: string) => void
+  handleError: (error: unknown, context?: string) => void
 }
 
 export function useErrorHandler(context: string = 'Operation'): UseErrorHandlerReturn {
   const [error, setErrorState] = useState<ErrorResult | null>(null)
 
-  const setError = useCallback((err: any) => {
+  const setError = useCallback((err: unknown) => {
     const parsedError = parseError(err)
     setErrorState(parsedError)
   }, [])
@@ -20,7 +20,7 @@ export function useErrorHandler(context: string = 'Operation'): UseErrorHandlerR
     setErrorState(null)
   }, [])
 
-  const handleError = useCallback((err: any, customContext?: string) => {
+  const handleError = useCallback((err: unknown, customContext?: string) => {
     const ctx = customContext || context
     logError(ctx, err)
     setError(err)
@@ -48,6 +48,7 @@ interface UseAsyncOperationReturn<T> {
   clearMessages: () => void
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function useAsyncOperation<T = any>(
   context: string = 'Operation',
   options: UseAsyncOperationOptions = {}
@@ -73,7 +74,7 @@ export function useAsyncOperation<T = any>(
       }
       
       return result
-    } catch (err) {
+    } catch (err: unknown) {
       const parsedError = parseError(err)
       logError(context, err)
       setError(parsedError)

@@ -9,7 +9,7 @@ export interface ErrorResult {
 /**
  * Parse and format error messages from various sources
  */
-export function parseError(error: any): ErrorResult {
+export function parseError(error: unknown): ErrorResult {
   // Handle null/undefined
   if (!error) {
     return {
@@ -27,11 +27,11 @@ export function parseError(error: any): ErrorResult {
   }
 
   // Handle Supabase errors
-  if (error.code && error.message) {
+  if (typeof error === 'object' && error !== null && 'code' in error && 'message' in error) {
     return {
-      message: formatSupabaseError(error),
-      code: error.code,
-      details: error.details || error.hint
+      message: formatSupabaseError(error as { code?: string; message?: string; details?: string; hint?: string }),
+      code: (error as { code?: string }).code,
+      details: (error as { details?: string; hint?: string }).details || (error as { details?: string; hint?: string }).hint
     }
   }
 
@@ -44,10 +44,10 @@ export function parseError(error: any): ErrorResult {
   }
 
   // Handle objects with message property
-  if (error.message) {
+  if (typeof error === 'object' && error !== null && 'message' in error) {
     return {
-      message: error.message,
-      code: error.code || 'OBJECT_ERROR'
+      message: (error as { message?: string }).message || 'An error occurred',
+      code: (error as { code?: string }).code || 'OBJECT_ERROR'
     }
   }
 
@@ -61,7 +61,7 @@ export function parseError(error: any): ErrorResult {
 /**
  * Format Supabase-specific errors into user-friendly messages
  */
-function formatSupabaseError(error: any): string {
+function formatSupabaseError(error: { code?: string; message?: string; details?: string; hint?: string }): string {
   const code = error.code
   const message = error.message
 
@@ -105,7 +105,7 @@ function formatSupabaseError(error: any): string {
 /**
  * Log errors to console in development
  */
-export function logError(context: string, error: any) {
+export function logError(context: string, error: unknown) {
   if (process.env.NODE_ENV === 'development') {
     console.error(`[${context}]`, error)
   }
@@ -131,7 +131,7 @@ export async function handleAsync<T>(
  * Validate required fields
  */
 export function validateRequired(
-  fields: Record<string, any>,
+  fields: Record<string, unknown>,
   fieldNames: string[]
 ): ErrorResult | null {
   for (const fieldName of fieldNames) {
@@ -237,24 +237,28 @@ export function getErrorMessage(error: ErrorResult): string {
 /**
  * Check if error is a network error
  */
-export function isNetworkError(error: any): boolean {
-  return (
-    error?.code === '08006' ||
-    error?.code === '08003' ||
-    error?.code === '08000' ||
-    error?.message?.toLowerCase().includes('network') ||
-    error?.message?.toLowerCase().includes('connection')
+export function isNetworkError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const err = error as { code?: string; message?: string }
+  return !!(
+    err.code === '08006' ||
+    err.code === '08003' ||
+    err.code === '08000' ||
+    err.message?.toLowerCase().includes('network') ||
+    err.message?.toLowerCase().includes('connection')
   )
 }
 
 /**
  * Check if error is a permission error
  */
-export function isPermissionError(error: any): boolean {
-  return (
-    error?.code === '42501' ||
-    error?.message?.toLowerCase().includes('permission') ||
-    error?.message?.toLowerCase().includes('unauthorized')
+export function isPermissionError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const err = error as { code?: string; message?: string }
+  return !!(
+    err.code === '42501' ||
+    err.message?.toLowerCase().includes('permission') ||
+    err.message?.toLowerCase().includes('unauthorized')
   )
 }
 
@@ -266,7 +270,7 @@ export async function retryOperation<T>(
   maxRetries: number = 3,
   delayMs: number = 1000
 ): Promise<T> {
-  let lastError: any
+  let lastError: unknown
   
   for (let i = 0; i < maxRetries; i++) {
     try {

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { DailyLog } from '@/types'
 
 export function useDailyLogs() {
@@ -8,7 +8,7 @@ export function useDailyLogs() {
   const queryClient = useQueryClient()
   const today = new Date().toISOString().split('T')[0]
 
-  const queryKey = ['daily_logs', today]
+  const queryKey = useMemo(() => ['daily_logs', today], [today])
 
   // 1. Initial Fetch
   const { data: logs, isLoading, error } = useQuery({
@@ -21,7 +21,7 @@ export function useDailyLogs() {
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      return data as (DailyLog & { users: any })[]
+      return data as (DailyLog & { users: { full_name: string; unique_short_id: number; photo_url: string | null } })[]
     },
   })
 

@@ -1,27 +1,20 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { 
   Search, 
-  Filter, 
   Download, 
   User, 
-  Mail, 
-  Phone,
-  Calendar,
   CheckCircle,
   XCircle,
-  MoreVertical,
   Eye,
-  Hash,
   Shield,
-  Clock,
   Edit
 } from 'lucide-react'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
-import { validateRequired, validateNumberRange, parseError } from '@/lib/error-handler'
+import { validateRequired, validateNumberRange, parseError, ErrorResult } from '@/lib/error-handler'
 import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 import { LoadingState } from '@/components/ui/loading-state'
 
@@ -45,7 +38,7 @@ interface Student {
 export function StudentsList() {
   const [students, setStudents] = useState<Student[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [fetchError, setFetchError] = useState<any>(null)
+  const [fetchError, setFetchError] = useState<ErrorResult | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
@@ -87,11 +80,7 @@ export function StudentsList() {
   
   const supabase = createClient()
 
-  useEffect(() => {
-    fetchStudents()
-  }, [])
-
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     setIsLoading(true)
     setFetchError(null)
     
@@ -110,7 +99,11 @@ export function StudentsList() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [supabase])
+
+  useEffect(() => {
+    fetchStudents()
+  }, [fetchStudents])
 
   const openStudentDetail = (student: Student) => {
     setSelectedStudent(student)
@@ -283,7 +276,7 @@ export function StudentsList() {
         <div className="flex gap-2">
           <select
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as any)}
+            onChange={(e) => setFilterStatus(e.target.value as 'all' | 'active' | 'inactive')}
             className="px-4 py-2.5 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="all">All Students</option>
@@ -348,6 +341,7 @@ export function StudentsList() {
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-2 border-primary/20">
                           {student.photo_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={student.photo_url}
                               alt={student.full_name || 'Student'}
@@ -432,6 +426,7 @@ export function StudentsList() {
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-4 border-primary/20">
                   {selectedStudent.photo_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={selectedStudent.photo_url}
                       alt={selectedStudent.full_name || 'Student'}

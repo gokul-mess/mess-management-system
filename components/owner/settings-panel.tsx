@@ -82,10 +82,6 @@ export function SettingsPanel() {
   const supabase = createClient()
   const { loading: saving, error: saveError, success: saveSuccess, execute: executeSave, clearMessages } = useAsyncOperation('Save Settings')
 
-  useEffect(() => {
-    loadSettings()
-  }, [])
-
   const loadSettings = async () => {
     // In production, load from database
     // For now, using default values
@@ -100,6 +96,11 @@ export function SettingsPanel() {
       }))
     }
   }
+
+  useEffect(() => {
+    loadSettings()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSave = async () => {
     clearMessages()
@@ -178,7 +179,7 @@ export function SettingsPanel() {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
+                  onClick={() => setActiveTab(tab.id as 'general' | 'notifications')}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
                     activeTab === tab.id
                       ? 'bg-primary text-primary-foreground'
