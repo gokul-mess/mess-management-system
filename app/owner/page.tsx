@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { useDailyLogs } from '@/hooks/use-daily-logs'
 import { useProfile } from '@/hooks/use-profile'
 import { Button } from '@/components/ui/button'
@@ -8,6 +7,9 @@ import { ManualVerify } from '@/components/owner/manual-verify'
 import { StudentsList } from '@/components/owner/students-list'
 import { AnalyticsDashboard } from '@/components/owner/analytics-dashboard'
 import { SettingsPanel } from '@/components/owner/settings-panel'
+import { useUIStore } from '@/store/ui-store'
+import { useAuthStore } from '@/store/auth-store'
+import { useState, useEffect } from 'react'
 import { 
   LayoutDashboard, 
   Users, 
@@ -32,28 +34,46 @@ import { createClient } from '@/lib/supabase/client'
 export default function OwnerDashboard() {
   const { logs, isLoading } = useDailyLogs()
   const { data: profile } = useProfile()
-  const [activeTab, setActiveTab] = useState('dashboard')
-  const [showNotifications, setShowNotifications] = useState(false)
-  const [showSearch, setShowSearch] = useState(false)
+  const router = useRouter()
+  const supabase = createClient()
+  
+  // Zustand stores
+  const { 
+    activeTab, 
+    sidebarCollapsed, 
+    showNotifications, 
+    showSearch,
+    setActiveTab,
+    setShowNotifications,
+    setShowSearch,
+    toggleSidebar
+  } = useUIStore()
+  
+  const { setUser } = useAuthStore()
+
+  // Sync profile with auth store
+  useEffect(() => {
+    if (profile) {
+      setUser(profile)
+    }
+  }, [profile, setUser])
+  
   const [notifications, setNotifications] = useState<Array<{
     type: string
     title: string
     message: string
     time: string
   }>>([])
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const router = useRouter()
-  const supabase = createClient()
 
   // Fetch notifications (placeholder for future implementation)
-  useState(() => {
+  useEffect(() => {
     const fetchNotifications = async () => {
       // TODO: Fetch real notifications from database
       // For now, keeping empty array
       setNotifications([])
     }
     fetchNotifications()
-  })
+  }, [])
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -97,7 +117,7 @@ export default function OwnerDashboard() {
 
         {/* Sidebar Toggle Button */}
         <button
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onClick={toggleSidebar}
           className="absolute -right-3 top-20 z-50 bg-white dark:bg-zinc-900 border border-border rounded-full p-1.5 shadow-md hover:shadow-lg hover:bg-accent transition-all"
         >
           <svg

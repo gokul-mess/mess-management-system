@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
+import { useSettingsStore } from '@/store/settings-store'
 import {
   Settings,
   DollarSign,
@@ -49,10 +50,13 @@ interface SettingsData {
 }
 
 export function SettingsPanel() {
+  // Zustand store
+  const { mealSettings, notifications: storeNotifications, setMealSettings, setNotifications } = useSettingsStore()
+  
   const [settings, setSettings] = useState<SettingsData>({
     mealPricing: {
-      lunch: 50,
-      dinner: 50
+      lunch: mealSettings.lunchPrice,
+      dinner: mealSettings.dinnerPrice
     },
     subscriptionPlans: {
       monthlyLunchOnly: 1500,
@@ -60,16 +64,16 @@ export function SettingsPanel() {
       monthlyBothMeals: 3000
     },
     notifications: {
-      emailAlerts: true,
+      emailAlerts: storeNotifications.email,
       lowBalanceAlert: true,
-      leaveRequests: true,
+      leaveRequests: storeNotifications.push,
       dailyReport: false
     },
     businessHours: {
-      lunchStart: '12:00',
-      lunchEnd: '14:00',
-      dinnerStart: '19:00',
-      dinnerEnd: '21:00'
+      lunchStart: mealSettings.lunchStartTime,
+      lunchEnd: mealSettings.lunchEndTime,
+      dinnerStart: mealSettings.dinnerStartTime,
+      dinnerEnd: mealSettings.dinnerEndTime
     },
     general: {
       messName: 'Gokul Mess',
@@ -110,6 +114,22 @@ export function SettingsPanel() {
     if (validationError) return
 
     await executeSave(async () => {
+      // Save to zustand store
+      setMealSettings({
+        lunchStartTime: settings.businessHours.lunchStart,
+        lunchEndTime: settings.businessHours.lunchEnd,
+        dinnerStartTime: settings.businessHours.dinnerStart,
+        dinnerEndTime: settings.businessHours.dinnerEnd,
+        lunchPrice: settings.mealPricing.lunch,
+        dinnerPrice: settings.mealPricing.dinner
+      })
+      
+      setNotifications({
+        email: settings.notifications.emailAlerts,
+        push: settings.notifications.leaveRequests,
+        sms: false
+      })
+      
       // Simulate save operation
       await new Promise(resolve => setTimeout(resolve, 1000))
       
