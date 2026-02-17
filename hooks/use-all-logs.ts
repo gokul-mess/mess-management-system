@@ -1,27 +1,25 @@
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { useMemo } from 'react'
 import type { DailyLog } from '@/types'
 
-export function useDailyLogs() {
+export function useAllLogs(userId?: string) {
   const supabase = createClient()
-  const today = new Date().toISOString().split('T')[0]
 
-  const queryKey = useMemo(() => ['daily_logs', today], [today])
-
-  // Fetch daily logs
   const { data: logs, isLoading, error } = useQuery({
-    queryKey,
+    queryKey: ['all_logs', userId],
     queryFn: async () => {
+      if (!userId) return []
+      
       const { data, error } = await supabase
         .from('daily_logs')
-        .select('*, users(full_name, unique_short_id, photo_url)')
-        .eq('date', today)
+        .select('*')
+        .eq('user_id', userId)
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      return data as (DailyLog & { users: { full_name: string; unique_short_id: number; photo_url: string | null } })[]
+      return data as DailyLog[]
     },
+    enabled: !!userId, // Only run query if userId is provided
   })
 
   return { logs, isLoading, error }

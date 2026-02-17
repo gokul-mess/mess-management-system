@@ -376,10 +376,10 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
                 <h2 className="text-3xl font-bold text-foreground">
                   {profile?.full_name || 'Owner'}
                 </h2>
-                <p className="text-muted-foreground mt-1 flex items-center gap-2">
+                <div className="text-muted-foreground mt-1 flex items-center gap-2">
                   <Crown className="w-4 h-4 text-yellow-600" />
                   Mess Owner
-                </p>
+                </div>
                 <div className="flex items-center gap-2 mt-3">
                   <span className="text-xs font-mono bg-primary/10 text-primary px-3 py-1.5 rounded-full border border-primary/20">
                     ID: #{profile?.unique_short_id || '---'}
@@ -435,10 +435,10 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
                       } ${shakeFields.full_name ? 'animate-shake' : ''}`}
                     />
                     {validationErrors.full_name && (
-                      <p className="text-sm text-red-500 mt-1 animate-in slide-in-from-top-1 duration-200 flex items-center gap-1">
+                      <div className="text-sm text-red-500 mt-1 animate-in slide-in-from-top-1 duration-200 flex items-center gap-1">
                         <X className="w-3 h-3" />
                         {validationErrors.full_name}
-                      </p>
+                      </div>
                     )}
                   </div>
                 ) : (
@@ -484,10 +484,10 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
                       } ${shakeFields.phone ? 'animate-shake' : ''}`}
                     />
                     {validationErrors.phone && (
-                      <p className="text-sm text-red-500 mt-1 animate-in slide-in-from-top-1 duration-200 flex items-center gap-1">
+                      <div className="text-sm text-red-500 mt-1 animate-in slide-in-from-top-1 duration-200 flex items-center gap-1">
                         <X className="w-3 h-3" />
                         {validationErrors.phone}
-                      </p>
+                      </div>
                     )}
                   </div>
                 ) : (
@@ -536,18 +536,18 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
               
               <div className="p-4 bg-gradient-to-br from-green-50 to-transparent dark:from-green-900/20 rounded-lg border border-green-200 dark:border-green-800 hover:scale-105 transition-transform duration-300">
                 <label className="text-xs font-medium text-muted-foreground">Role</label>
-                <p className="mt-1 font-medium text-sm flex items-center gap-1">
+                <div className="mt-1 font-medium text-sm flex items-center gap-1">
                   <Crown className="w-4 h-4 text-yellow-600" />
                   Owner
-                </p>
+                </div>
               </div>
               
               <div className="p-4 bg-gradient-to-br from-yellow-50 to-transparent dark:from-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 hover:scale-105 transition-transform duration-300">
                 <label className="text-xs font-medium text-muted-foreground">Status</label>
-                <p className="mt-1 font-medium text-sm flex items-center gap-1">
+                <div className="mt-1 font-medium text-sm flex items-center gap-1">
                   <div className="w-2 h-2 bg-green-600 rounded-full animate-pulse" />
                   Active
-                </p>
+                </div>
               </div>
               
               <div className="col-span-2 p-4 bg-gradient-to-br from-gray-50 to-transparent dark:from-gray-900/20 rounded-lg border border-gray-200 dark:border-gray-800">

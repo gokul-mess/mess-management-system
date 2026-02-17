@@ -50,9 +50,6 @@ create table public.daily_logs (
   created_at timestamp with time zone default now()
 );
 
--- Realtime is essential for Owner Dashboard
-alter publication supabase_realtime add table public.daily_logs;
-
 -- Enable RLS
 alter table public.daily_logs enable row level security;
 

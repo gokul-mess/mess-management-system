@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useProfile } from '@/hooks/use-profile'
 import { useDailyLogs } from '@/hooks/use-daily-logs'
+import { useAllLogs } from '@/hooks/use-all-logs'
 import { Button } from '@/components/ui/button'
 import { useUIStore } from '@/store/ui-store'
 import { useAuthStore } from '@/store/auth-store'
@@ -33,6 +34,7 @@ import { createClient } from '@/lib/supabase/client'
 export default function StudentDashboard() {
   const { data: profile, isLoading: profileLoading } = useProfile()
   const { logs, isLoading: logsLoading } = useDailyLogs()
+  const { logs: allLogs } = useAllLogs(profile?.id)
   const router = useRouter()
   const supabase = createClient()
   
@@ -74,7 +76,7 @@ export default function StudentDashboard() {
       
       // Check subscription days
       const daysRemaining = profile?.subscription_end_date 
-        ? Math.ceil((new Date(profile.subscription_end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+        ? Math.max(0, Math.ceil((new Date(profile.subscription_end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))
         : 0
       
       if (daysRemaining > 0 && daysRemaining <= 5) {
@@ -116,13 +118,13 @@ export default function StudentDashboard() {
   const hasLunch = todayLogs.some(log => log.meal_type === 'LUNCH')
   const hasDinner = todayLogs.some(log => log.meal_type === 'DINNER')
 
-  // Calculate subscription days remaining
+  // Calculate subscription days remaining (don't show negative numbers)
   const daysRemaining = profile?.subscription_end_date 
-    ? Math.ceil((new Date(profile.subscription_end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    ? Math.max(0, Math.ceil((new Date(profile.subscription_end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))
     : 0
 
   // Calculate total meals consumed
-  const totalMeals = logs?.filter(log => log.user_id === profile?.id).length || 0
+  const totalMeals = allLogs?.length || 0
 
   if (isPageLoading) {
     return (
@@ -536,7 +538,7 @@ export default function StudentDashboard() {
               />
             )}
             {activeTab === 'leave' && <LeaveContent profile={profile || null} />}
-            {activeTab === 'history' && <HistoryContent profile={profile || null} logs={logs || null} />}
+            {activeTab === 'history' && <HistoryContent profile={profile || null} />}
             {activeTab === 'profile' && <ProfileContent profile={profile || null} onSignOut={handleSignOut} />}
             {activeTab === 'notifications' && <NotificationsContent notifications={notifications} />}
           </div>
@@ -1722,16 +1724,11 @@ function LeaveContent({ profile }: { profile: { id: string; full_name?: string }
 }
 
 // HISTORY CONTENT - Enhanced with Dashboard Color Theme & Advanced Filters
-function HistoryContent({ profile, logs }: {
+function HistoryContent({ profile }: {
   profile: { id: string } | null
-  logs: Array<{
-    log_id: string
-    user_id: string
-    meal_type: string
-    status: string
-    created_at: string
-  }> | null | undefined
 }) {
+  const { logs: allLogs } = useAllLogs(profile?.id)
+  
   const [filter, setFilter] = useState<'ALL' | 'LUNCH' | 'DINNER'>('ALL')
   const [dateRange, setDateRange] = useState<'today' | 'week' | 'month' | 'custom' | 'all'>('month')
   const [customStartDate, setCustomStartDate] = useState('')
@@ -1741,7 +1738,7 @@ function HistoryContent({ profile, logs }: {
   const [viewMode, setViewMode] = useState<'grouped' | 'list'>('grouped')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
 
-  const userLogs = logs?.filter((log) => log.user_id === profile?.id) || []
+  const userLogs = allLogs || []
 
   // Filter by meal type
   const filteredByMeal = filter === 'ALL' 
@@ -2235,7 +2232,7 @@ function ProfileContent({ profile, onSignOut }: {
   const supabase = createClient()
 
   const daysRemaining = profile?.subscription_end_date 
-    ? Math.ceil((new Date(profile.subscription_end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    ? Math.max(0, Math.ceil((new Date(profile.subscription_end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))
     : 0
 
   // Check if photo upload permission is valid

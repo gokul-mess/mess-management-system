@@ -51,6 +51,13 @@ export function StudentsList() {
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set())
   const [showFilterDropdown, setShowFilterDropdown] = useState(false)
   
+  // Table enhancement states
+  const [sortColumn, setSortColumn] = useState<'name' | 'id' | 'status' | 'joined' | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(10)
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null)
+  
   // Use async operation hooks for different operations
   const {
     loading: permissionLoading,
@@ -301,7 +308,7 @@ export function StudentsList() {
     if (!student.subscription_end_date) return null
     const now = new Date().getTime()
     const end = new Date(student.subscription_end_date).getTime()
-    const days = Math.ceil((end - now) / (1000 * 60 * 60 * 24))
+    const days = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)))
     return days
   }
 
@@ -313,6 +320,68 @@ export function StudentsList() {
                          (filterStatus === 'inactive' && !student.is_active)
     return matchesSearch && matchesFilter
   })
+
+  // Sorting logic
+  const handleSort = (column: 'name' | 'id' | 'status' | 'joined') => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
+
+  const sortedStudents = [...filteredStudents].sort((a, b) => {
+    if (!sortColumn) return 0
+
+    let comparison = 0
+    switch (sortColumn) {
+      case 'name':
+        comparison = a.full_name.localeCompare(b.full_name)
+        break
+      case 'id':
+        comparison = a.unique_short_id - b.unique_short_id
+        break
+      case 'status':
+        comparison = (a.is_active === b.is_active) ? 0 : a.is_active ? -1 : 1
+        break
+      case 'joined':
+        comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        break
+    }
+
+    return sortDirection === 'asc' ? comparison : -comparison
+  })
+
+  // Pagination logic
+  const totalPages = Math.ceil(sortedStudents.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedStudents = sortedStudents.slice(startIndex, endIndex)
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, filterStatus, sortColumn, sortDirection])
+
+  const SortIcon = ({ column }: { column: 'name' | 'id' | 'status' | 'joined' }) => {
+    if (sortColumn !== column) {
+      return (
+        <svg className="w-4 h-4 opacity-0 group-hover:opacity-50 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+        </svg>
+      )
+    }
+    return sortDirection === 'asc' ? (
+      <svg className="w-4 h-4 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+      </svg>
+    ) : (
+      <svg className="w-4 h-4 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+      </svg>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -476,33 +545,71 @@ export function StudentsList() {
         ) : filteredStudents.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-muted/50 border-b border-border">
+              <thead className="bg-muted/50 border-b-2 border-border">
                 <tr>
                   <th className="px-6 py-4 text-left">
                     <input
                       type="checkbox"
-                      checked={selectedStudents.size === filteredStudents.length}
+                      checked={selectedStudents.size === paginatedStudents.length && paginatedStudents.length > 0}
                       onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer transition-all duration-300 hover:scale-110"
+                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer transition-all duration-300 hover:scale-110 checked:animate-bounce"
                     />
                   </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold">Student</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold">ID</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold">Status</th>
+                  <th 
+                    className="px-6 py-4 text-left text-sm font-semibold cursor-pointer hover:bg-accent/50 transition-colors group"
+                    onClick={() => handleSort('name')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Student
+                      <SortIcon column="name" />
+                    </div>
+                  </th>
+                  <th 
+                    className="px-6 py-4 text-left text-sm font-semibold cursor-pointer hover:bg-accent/50 transition-colors group"
+                    onClick={() => handleSort('id')}
+                  >
+                    <div className="flex items-center gap-2">
+                      ID
+                      <SortIcon column="id" />
+                    </div>
+                  </th>
+                  <th 
+                    className="px-6 py-4 text-left text-sm font-semibold cursor-pointer hover:bg-accent/50 transition-colors group"
+                    onClick={() => handleSort('status')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Status
+                      <SortIcon column="status" />
+                    </div>
+                  </th>
                   <th className="px-6 py-4 text-left text-sm font-semibold">Subscription</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold">Joined</th>
+                  <th 
+                    className="px-6 py-4 text-left text-sm font-semibold cursor-pointer hover:bg-accent/50 transition-colors group"
+                    onClick={() => handleSort('joined')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Joined
+                      <SortIcon column="joined" />
+                    </div>
+                  </th>
                   <th className="px-6 py-4 text-right text-sm font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredStudents.map((student, index) => {
+                {paginatedStudents.map((student, index) => {
                   const daysRemaining = getDaysRemaining(student)
                   const progress = getSubscriptionProgress(student)
                   
                   return (
                     <tr 
                       key={student.id} 
-                      className="hover:bg-accent/50 transition-all duration-300 group hover:shadow-md"
+                      className={`transition-all duration-300 group cursor-pointer relative ${
+                        hoveredRow === student.id 
+                          ? 'bg-primary/5 shadow-md z-10' 
+                          : 'hover:bg-accent/30'
+                      } ${selectedStudents.has(student.id) ? 'bg-primary/10' : ''}`}
+                      onMouseEnter={() => setHoveredRow(student.id)}
+                      onMouseLeave={() => setHoveredRow(null)}
                       style={{
                         animationDelay: `${index * 50}ms`,
                         animation: 'slideInLeft 0.4s ease-out forwards',
@@ -514,7 +621,7 @@ export function StudentsList() {
                           type="checkbox"
                           checked={selectedStudents.has(student.id)}
                           onChange={() => toggleStudentSelection(student.id)}
-                          className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer transition-all duration-300 hover:scale-110"
+                          className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer transition-all duration-300 hover:scale-125 checked:animate-bounce"
                           onClick={(e) => e.stopPropagation()}
                         />
                       </td>
@@ -615,6 +722,75 @@ export function StudentsList() {
                 })}
               </tbody>
             </table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-between px-6 py-4 border-t border-border bg-muted/30">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>Showing</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value))
+                      setCurrentPage(1)
+                    }}
+                    className="px-2 py-1 border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary transition-all"
+                  >
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                  <span>of {sortedStudents.length} students</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 rounded-lg border border-input bg-background hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 hover:scale-105 active:scale-95"
+                  >
+                    Previous
+                  </button>
+
+                  <div className="flex gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                      // Show first page, last page, current page, and pages around current
+                      if (
+                        page === 1 ||
+                        page === totalPages ||
+                        (page >= currentPage - 1 && page <= currentPage + 1)
+                      ) {
+                        return (
+                          <button
+                            key={page}
+                            onClick={() => setCurrentPage(page)}
+                            className={`w-10 h-10 rounded-lg border transition-all duration-300 ${
+                              currentPage === page
+                                ? 'bg-primary text-primary-foreground border-primary shadow-lg scale-110'
+                                : 'border-input bg-background hover:bg-accent hover:scale-105'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        )
+                      } else if (page === currentPage - 2 || page === currentPage + 2) {
+                        return <span key={page} className="w-10 h-10 flex items-center justify-center">...</span>
+                      }
+                      return null
+                    })}
+                  </div>
+
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 rounded-lg border border-input bg-background hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 hover:scale-105 active:scale-95"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="p-12 text-center">
