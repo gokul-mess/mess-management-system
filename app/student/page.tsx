@@ -1371,7 +1371,6 @@ function ParcelOTPContent({ profile, showParcelOTP, setShowParcelOTP }: {
 function LeaveContent({ profile }: { profile: { id: string; full_name?: string } | null }) {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -1466,7 +1465,6 @@ function LeaveContent({ profile }: { profile: { id: string; full_name?: string }
       setSuccess(true)
       setStartDate('')
       setEndDate('')
-      setReason('')
 
       // Refresh leave history
       const { data } = await supabase

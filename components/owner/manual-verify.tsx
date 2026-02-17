@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { UserCheck, Loader2, CheckCircle } from 'lucide-react'
+import { UserCheck, Loader2, CheckCircle, Package, Hash } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
 import { ErrorMessage } from '@/components/ui/error-message'
@@ -12,20 +12,23 @@ interface ManualVerifyProps {
 }
 
 export function ManualVerify({ onSuccess }: ManualVerifyProps) {
+  const [verifyMode, setVerifyMode] = useState<'ID' | 'OTP'>('ID')
   const [shortId, setShortId] = useState('')
+  const [otpCode, setOtpCode] = useState('')
   const [lastVerified, setLastVerified] = useState<{
     name: string
     id: number
     photo: string | null
     mealType: string
+    method: string
   } | null>(null)
   const [showSuccess, setShowSuccess] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
   const { loading, error, execute, clearMessages } = useAsyncOperation('Verify Meal')
 
-  // Fast verification - combines search and log in one operation
-  const quickVerify = async () => {
+  // Fast verification by Student ID
+  const quickVerifyById = async () => {
     if (!shortId || shortId.trim() === '') return
     
     clearMessages()
@@ -53,7 +56,7 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         throw new Error('Student subscription is inactive. Please renew.')
       }
 
-      // Check if already logged (in parallel with student fetch would be ideal, but keeping simple)
+      // Check if already logged
       const { data: existingLog } = await supabase
         .from('daily_logs')
         .select('log_id')
@@ -83,7 +86,8 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         name: student.full_name,
         id: student.unique_short_id,
         photo: student.photo_url,
-        mealType
+        mealType,
+        method: 'Student ID'
       })
       setShowSuccess(true)
 
@@ -91,11 +95,10 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         onSuccess({ student, mealType })
       }
 
-      // Quick reset for next student (1 second instead of 3)
+      // Quick reset for next student
       setTimeout(() => {
         setShowSuccess(false)
         setShortId('')
-        // Auto-focus back to input for next student
         if (inputRef.current) {
           inputRef.current.focus()
         }
@@ -103,56 +106,238 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
     })
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && shortId && !loading) {
-      quickVerify()
+  // Verify by OTP (for parcel collection)
+  const quickVerifyByOTP = async () => {
+    if (!otpCode || otpCode.trim() === '') return
+    
+    clearMessages()
+    setShowSuccess(false)
+
+    await execute(async () => {
+      // Get current hour to determine meal type
+      const hour = new Date().getHours()
+      const mealType = hour < 16 ? 'LUNCH' : 'DINNER'
+      const today = new Date().toISOString().split('T')[0]
+
+      // Find valid OTP
+      const { data: otpRecord, error: otpError } = await supabase
+        .from('parcel_otps')
+        .select('otp_id, user_id, expires_at, is_used, users!inner(id, full_name, unique_short_id, photo_url, is_active)')
+        .eq('otp_code', otpCode.toUpperCase())
+        .eq('is_used', false)
+        .single()
+
+      if (otpError || !otpRecord) {
+        throw new Error('Invalid or expired OTP. Please check the code.')
+      }
+
+      // Check if OTP is expired
+      if (new Date(otpRecord.expires_at) < new Date()) {
+        throw new Error('OTP has expired. Please generate a new one.')
+      }
+
+      const student = otpRecord.users as unknown as {
+        id: string
+        full_name: string
+        unique_short_id: number
+        photo_url: string | null
+        is_active: boolean
+      }
+
+      if (!student.is_active) {
+        throw new Error('Student subscription is inactive. Please renew.')
+      }
+
+      // Check if already logged
+      const { data: existingLog } = await supabase
+        .from('daily_logs')
+        .select('log_id')
+        .eq('user_id', student.id)
+        .eq('date', today)
+        .eq('meal_type', mealType)
+        .maybeSingle()
+
+      if (existingLog) {
+        throw new Error(`${mealType} already logged for ${student.full_name} today`)
+      }
+
+      // Insert meal log with PARCEL_OTP method
+      const { error: insertError } = await supabase
+        .from('daily_logs')
+        .insert({
+          user_id: student.id,
+          meal_type: mealType,
+          status: 'CONSUMED',
+          access_method: 'PARCEL_OTP'
+        })
+
+      if (insertError) throw insertError
+
+      // Mark OTP as used
+      const { error: updateError } = await supabase
+        .from('parcel_otps')
+        .update({ is_used: true })
+        .eq('otp_id', otpRecord.otp_id)
+
+      if (updateError) throw updateError
+
+      // Show success
+      setLastVerified({
+        name: student.full_name,
+        id: student.unique_short_id,
+        photo: student.photo_url,
+        mealType,
+        method: 'Parcel OTP'
+      })
+      setShowSuccess(true)
+
+      if (onSuccess) {
+        onSuccess({ student, mealType, method: 'OTP' })
+      }
+
+      // Quick reset
+      setTimeout(() => {
+        setShowSuccess(false)
+        setOtpCode('')
+        if (inputRef.current) {
+          inputRef.current.focus()
+        }
+      }, 1000)
+    })
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !loading) {
+      if (verifyMode === 'ID' && shortId) {
+        quickVerifyById()
+      } else if (verifyMode === 'OTP' && otpCode) {
+        quickVerifyByOTP()
+      }
     }
   }
 
   return (
     <div className="space-y-6">
-      {/* Always show input for fast entry */}
+      {/* Mode Toggle */}
+      <div className="flex gap-2 p-1 bg-accent/50 rounded-lg">
+        <button
+          onClick={() => {
+            setVerifyMode('ID')
+            setOtpCode('')
+            clearMessages()
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-md font-medium transition-all ${
+            verifyMode === 'ID'
+              ? 'bg-white dark:bg-zinc-900 shadow-sm text-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Hash className="w-4 h-4" />
+          Student ID
+        </button>
+        <button
+          onClick={() => {
+            setVerifyMode('OTP')
+            setShortId('')
+            clearMessages()
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-md font-medium transition-all ${
+            verifyMode === 'OTP'
+              ? 'bg-white dark:bg-zinc-900 shadow-sm text-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          Parcel OTP
+        </button>
+      </div>
+
+      {/* Input Section */}
       <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-2">
-            Student ID - Press Enter to Verify
-          </label>
-          <div className="flex gap-3">
-            <input
-              ref={inputRef}
-              type="text"
-              value={shortId}
-              onChange={(e) => {
-                const value = e.target.value.replace(/\D/g, '')
-                setShortId(value)
-                clearMessages()
-              }}
-              onKeyPress={handleKeyPress}
-              placeholder="Enter ID & press Enter"
-              className="flex-1 px-6 py-4 rounded-lg border-2 border-input bg-background text-center text-4xl font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
-              disabled={loading}
-              autoFocus
-            />
-            <Button
-              onClick={quickVerify}
-              disabled={loading || !shortId || shortId.trim() === ''}
-              size="lg"
-              className="px-8 text-lg"
-            >
-              {loading ? (
-                <Loader2 className="w-6 h-6 animate-spin" />
-              ) : (
-                <>
-                  <UserCheck className="w-6 h-6 mr-2" />
-                  Verify
-                </>
-              )}
-            </Button>
+        {verifyMode === 'ID' ? (
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Student ID - Press Enter to Verify
+            </label>
+            <div className="flex gap-3">
+              <input
+                ref={inputRef}
+                type="text"
+                value={shortId}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '')
+                  setShortId(value)
+                  clearMessages()
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder="Enter ID & press Enter"
+                className="flex-1 px-6 py-4 rounded-lg border-2 border-input bg-background text-center text-4xl font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
+                disabled={loading}
+                autoFocus
+              />
+              <Button
+                onClick={quickVerifyById}
+                disabled={loading || !shortId || shortId.trim() === ''}
+                size="lg"
+                className="px-8 text-lg"
+              >
+                {loading ? (
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                ) : (
+                  <>
+                    <UserCheck className="w-6 h-6 mr-2" />
+                    Verify
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              {loading ? 'Verifying...' : 'Type ID and press Enter for fastest verification'}
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground mt-2 text-center">
-            {loading ? 'Verifying...' : 'Type ID and press Enter for fastest verification'}
-          </p>
-        </div>
+        ) : (
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Parcel OTP - Press Enter to Verify
+            </label>
+            <div className="flex gap-3">
+              <input
+                ref={inputRef}
+                type="text"
+                value={otpCode}
+                onChange={(e) => {
+                  const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')
+                  setOtpCode(value)
+                  clearMessages()
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder="Enter OTP & press Enter"
+                className="flex-1 px-6 py-4 rounded-lg border-2 border-input bg-background text-center text-4xl font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
+                disabled={loading}
+                autoFocus
+                maxLength={6}
+              />
+              <Button
+                onClick={quickVerifyByOTP}
+                disabled={loading || !otpCode || otpCode.trim() === ''}
+                size="lg"
+                className="px-8 text-lg"
+              >
+                {loading ? (
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                ) : (
+                  <>
+                    <Package className="w-6 h-6 mr-2" />
+                    Verify
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              {loading ? 'Verifying parcel OTP...' : 'Enter the 6-character OTP provided by the student'}
+            </p>
+          </div>
+        )}
 
         {error && (
           <ErrorMessage 
@@ -172,7 +357,7 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
                 ✓ {lastVerified.name}
               </p>
               <p className="text-sm text-green-700 dark:text-green-300">
-                ID: {lastVerified.id} • {lastVerified.mealType}
+                ID: {lastVerified.id} • {lastVerified.mealType} • {lastVerified.method}
               </p>
             </div>
           </div>
