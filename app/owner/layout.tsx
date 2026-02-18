@@ -1,5 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = {
+  title: 'Gokul Mess - Owner Portal',
+  description: 'Owner dashboard for Gokul Mess Management System',
+}
 
 export default async function OwnerLayout({
   children,
@@ -28,11 +34,8 @@ export default async function OwnerLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-zinc-950">
-      {/* Desktop Sidebar / Header */}
-      <main className="p-6">
-        {children}
-      </main>
-    </div>
+    <>
+      {children}
+    </>
   )
 }

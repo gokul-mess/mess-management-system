@@ -1,5 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = {
+  title: 'Gokul Mess - Student Portal',
+  description: 'Student portal for Gokul Mess Management System',
+}
 
 export default async function StudentLayout({
   children,
@@ -32,12 +38,8 @@ export default async function StudentLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-black">
-       {/* Mobile Header could go here */}
-      <main className="container mx-auto px-4 py-6 pb-24">
-        {children}
-      </main>
-      {/* Bottom Nav for Mobile could go here */}
-    </div>
+    <>
+      {children}
+    </>
   )
 }
