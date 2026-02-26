@@ -45,8 +45,8 @@ const STUDENT_HEADER_TABS: HeaderTab[] = [
 ]
 
 export default function StudentDashboard() {
-  const { data: profile, isLoading: profileLoading } = useProfile()
-  const { logs, isLoading: logsLoading } = useDailyLogs()
+  const { data: profile, isPending: profileLoading } = useProfile()
+  const { logs, isPending: logsLoading } = useDailyLogs()
   const { logs: allLogs } = useAllLogs(profile?.id)
 
   const { activeTab, setActiveTab, showParcelOTP, setShowParcelOTP, sidebarCollapsed, toggleSidebar } = useUIStore()

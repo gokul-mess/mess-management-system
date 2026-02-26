@@ -1,15 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, queryOptions } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import type { DailyLog } from '@/types'
 
-export function useAllLogs(userId?: string) {
-  const supabase = createClient()
-
-  const { data: logs, isLoading, error } = useQuery({
-    queryKey: ['all_logs', userId],
+export function allLogsQueryOptions(userId: string) {
+  return queryOptions({
+    queryKey: queryKeys.allLogs.byUser(userId),
     queryFn: async () => {
-      if (!userId) return []
-      
+      const supabase = createClient()
       const { data, error } = await supabase
         .from('daily_logs')
         .select('*')
@@ -19,8 +17,14 @@ export function useAllLogs(userId?: string) {
       if (error) throw error
       return data as DailyLog[]
     },
-    enabled: !!userId, // Only run query if userId is provided
+  })
+}
+
+export function useAllLogs(userId?: string) {
+  const { data: logs, isPending, error } = useQuery({
+    ...allLogsQueryOptions(userId ?? ''),
+    enabled: !!userId,
   })
 
-  return { logs, isLoading, error }
+  return { logs, isPending, error }
 }

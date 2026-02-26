@@ -55,7 +55,7 @@ const SEARCH_ACTIONS = [
 ]
 
 export default function OwnerDashboard() {
-  const { logs, isLoading } = useDailyLogs()
+  const { logs, isPending: isLoading } = useDailyLogs()
   const { data: profile } = useProfile()
   
   const { 
