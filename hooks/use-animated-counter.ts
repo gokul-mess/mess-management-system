@@ -23,20 +23,21 @@ export function useAnimatedCounter({
   steps = 30,
   enabled = true,
 }: UseAnimatedCounterOptions): number {
-  const resolvedTarget = target > 0 ? target : 0
-  const [value, setValue] = useState(resolvedTarget)
+  const [value, setValue] = useState(0)
 
   useEffect(() => {
+    // When disabled or target is non-positive, snap immediately
     if (!enabled || target <= 0) {
-      // Use a microtask to avoid synchronous setState in effect
-      const id = requestAnimationFrame(() => setValue(target > 0 ? target : 0))
-      return () => cancelAnimationFrame(id)
+      setValue(target > 0 ? target : 0)
+      return
     }
 
     const increment = target / steps
     let current = 0
+    let cancelled = false
 
     const timer = setInterval(() => {
+      if (cancelled) return
       current += increment
       if (current >= target) {
         setValue(target)
@@ -46,7 +47,10 @@ export function useAnimatedCounter({
       }
     }, duration / steps)
 
-    return () => clearInterval(timer)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
   }, [target, duration, steps, enabled])
 
   return value

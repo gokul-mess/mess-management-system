@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import {
@@ -40,38 +41,38 @@ interface DashboardContentProps {
 }
 
 export function OwnerDashboardContent({ stats, logs, isLoading }: DashboardContentProps) {
-  const [activeStudents, setActiveStudents] = useState(0)
-  const [leaveRequests, setLeaveRequests] = useState(0)
   const [showFilterMenu, setShowFilterMenu] = useState(false)
   const [mealTypeFilter, setMealTypeFilter] = useState<'all' | 'LUNCH' | 'DINNER'>('all')
+
+  const { data: activeStudents = 0 } = useQuery({
+    queryKey: ['owner', 'active-students'],
+    queryFn: async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('users')
+        .select('id', { count: 'exact' })
+        .eq('role', 'STUDENT')
+        .eq('is_active', true)
+      return data?.length ?? 0
+    },
+  })
+
+  const { data: leaveRequests = 0 } = useQuery({
+    queryKey: ['owner', 'pending-leaves'],
+    queryFn: async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('leaves')
+        .select('leave_id', { count: 'exact' })
+        .eq('is_approved', false)
+      return data?.length ?? 0
+    },
+  })
 
   const animatedMeals = useAnimatedCounter({ target: stats.totalMeals, enabled: !isLoading })
   const animatedRevenue = useAnimatedCounter({ target: stats.revenue, enabled: !isLoading })
   const animatedStudents = useAnimatedCounter({ target: activeStudents, enabled: !isLoading })
   const animatedLeaves = useAnimatedCounter({ target: leaveRequests, enabled: !isLoading })
-
-  const supabase = createClient()
-
-  // Fetch real data on mount
-  useEffect(() => {
-    const fetchData = async () => {
-      const { data: students } = await supabase
-        .from('users')
-        .select('id', { count: 'exact' })
-        .eq('role', 'STUDENT')
-        .eq('is_active', true)
-
-      setActiveStudents(students?.length || 0)
-
-      const { data: leaves } = await supabase
-        .from('leaves')
-        .select('leave_id', { count: 'exact' })
-        .eq('is_approved', false)
-
-      setLeaveRequests(leaves?.length || 0)
-    }
-    fetchData()
-  }, [supabase])
 
   const handleExportLogs = () => {
     try {
