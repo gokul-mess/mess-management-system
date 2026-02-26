@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireRole } from '@/lib/auth'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
@@ -12,30 +11,8 @@ export default async function OwnerLayout({
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
+  // Redirects to /login if not authenticated, or to /student if not OWNER
+  await requireRole('OWNER')
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  // STRICT: Check if role is OWNER
-  const { data: profile } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile || profile.role !== 'OWNER') {
-    redirect('/student') // Redirect unauthorized users to student app
-  }
-
-  return (
-    <>
-      {children}
-    </>
-  )
+  return <>{children}</>
 }

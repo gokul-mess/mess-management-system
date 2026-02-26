@@ -1,6 +1,12 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+/**
+ * Public routes that don't require authentication.
+ * All other routes will redirect unauthenticated users to /login.
+ */
+const PUBLIC_ROUTES = ['/', '/login', '/auth/callback']
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -8,7 +14,7 @@ export async function updateSession(request: NextRequest) {
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         getAll() {
@@ -29,45 +35,31 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // If the URL has a `code` query parameter (from Supabase PKCE OAuth flow),
-  // try to exchange it for a session, then always redirect to a clean URL.
-  // The code is one-time use — if the callback route already consumed it,
-  // the exchange will fail, but we still need to strip it from the URL.
-  const code = request.nextUrl.searchParams.get('code')
-  if (code && !request.nextUrl.pathname.startsWith('/auth/callback')) {
-    // Attempt exchange (may fail if already consumed by /auth/callback)
-    await supabase.auth.exchangeCodeForSession(code)
-
-    // Always strip the `code` param from the URL
-    const cleanUrl = request.nextUrl.clone()
-    cleanUrl.searchParams.delete('code')
-
-    // Copy auth cookies onto the redirect response
-    const redirectResponse = NextResponse.redirect(cleanUrl)
-    supabaseResponse.cookies.getAll().forEach((cookie) => {
-      redirectResponse.cookies.set(cookie.name, cookie.value)
-    })
-    return redirectResponse
-  }
-
   // IMPORTANT: Avoid writing any logic between createServerClient and
   // supabase.auth.getUser(). A simple mistake could make it very hard to debug
   // issues with users being randomly logged out.
 
+  // Refresh session — this is the primary purpose of middleware
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    request.nextUrl.pathname !== '/'
-  ) {
-    // no user, potentially respond by redirecting the user to the login page
-    // const url = request.nextUrl.clone()
-    // url.pathname = '/login'
-    // return NextResponse.redirect(url)
+  const { pathname } = request.nextUrl
+  const isPublicRoute = PUBLIC_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`)
+  )
+
+  // Redirect unauthenticated users to login for protected routes
+  if (!user && !isPublicRoute) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    url.searchParams.set('redirectTo', request.nextUrl.pathname)
+    return NextResponse.redirect(url)
+  }
+
+  // Redirect authenticated users away from auth pages
+  if (user && request.nextUrl.pathname === '/login') {
+    return NextResponse.redirect(new URL('/', request.url))
   }
 
   return supabaseResponse
