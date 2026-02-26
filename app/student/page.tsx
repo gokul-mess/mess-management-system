@@ -24,8 +24,7 @@ import {
   User,
   Sparkles,
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { signOut } from '@/app/auth/actions'
 
 // --- Constants ---
 
@@ -49,8 +48,6 @@ export default function StudentDashboard() {
   const { data: profile, isLoading: profileLoading } = useProfile()
   const { logs, isLoading: logsLoading } = useDailyLogs()
   const { logs: allLogs } = useAllLogs(profile?.id)
-  const router = useRouter()
-  const supabase = createClient()
 
   const { activeTab, setActiveTab, showParcelOTP, setShowParcelOTP, sidebarCollapsed, toggleSidebar } = useUIStore()
   const { setUser } = useAuthStore()
@@ -95,9 +92,8 @@ export default function StudentDashboard() {
     return () => clearTimeout(timer)
   }, [])
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
+  const handleSignOut = () => {
+    signOut()
   }
 
   const today = new Date(now).toISOString().split('T')[0]

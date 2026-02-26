@@ -25,8 +25,7 @@ import {
   UserCheck,
   Bell,
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { signOut } from '@/app/auth/actions'
 
 // --- Constants ---
 
@@ -58,8 +57,6 @@ const SEARCH_ACTIONS = [
 export default function OwnerDashboard() {
   const { logs, isLoading } = useDailyLogs()
   const { data: profile } = useProfile()
-  const router = useRouter()
-  const supabase = createClient()
   
   const { 
     activeTab, 
@@ -82,9 +79,8 @@ export default function OwnerDashboard() {
     type: string; title: string; message: string; time: string
   }>>([])
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
+  const handleSignOut = () => {
+    signOut()
   }
 
   const todayStats = {
