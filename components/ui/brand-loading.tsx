@@ -1,3 +1,5 @@
+'use client'
+
 import { Loader2, Sparkles } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
