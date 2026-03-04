@@ -8,6 +8,7 @@ import { SettingsPanel } from '@/components/owner/settings-panel'
 import { ProfilePage } from '@/components/owner/profile-page'
 import { OwnerDashboardContent } from '@/components/owner/dashboard-content'
 import { VerifyContent } from '@/components/owner/verify-content'
+import { MenuPhotoPage } from '@/components/owner/menu-photo-page'
 import { DashboardSidebar } from '@/components/shared/dashboard-sidebar'
 import { DashboardHeader } from '@/components/shared/dashboard-header'
 import { NotificationsContent } from '@/components/shared/notifications-content'
@@ -24,6 +25,7 @@ import {
   Hash,
   UserCheck,
   Bell,
+  UtensilsCrossed,
 } from 'lucide-react'
 import { signOut } from '@/app/auth/actions'
 
@@ -34,6 +36,7 @@ const OWNER_NAV_ITEMS: SidebarNavItem[] = [
   { icon: Hash, label: 'Verify Meal', tab: 'verify' },
   { icon: Users, label: 'Students', tab: 'students' },
   { icon: BarChart3, label: 'Analytics', tab: 'analytics' },
+  { icon: UtensilsCrossed, label: 'Menu Photo', tab: 'menu' },
   { icon: Settings, label: 'Settings', tab: 'settings' },
   { icon: UserCheck, label: 'Profile', tab: 'profile' },
 ]
@@ -43,6 +46,7 @@ const OWNER_HEADER_TABS: HeaderTab[] = [
   { tab: 'verify', icon: Hash, label: 'Verify Meal', color: 'text-green-600 dark:text-green-400' },
   { tab: 'students', icon: Users, label: 'Student Management', color: 'text-purple-600 dark:text-purple-400' },
   { tab: 'analytics', icon: BarChart3, label: 'Analytics & Reports', color: 'text-orange-600 dark:text-orange-400' },
+  { tab: 'menu', icon: UtensilsCrossed, label: 'Menu Photo', color: 'text-amber-600 dark:text-amber-400' },
   { tab: 'settings', icon: Settings, label: 'Settings', color: 'text-gray-600 dark:text-gray-400' },
   { tab: 'profile', icon: UserCheck, label: 'My Profile', color: 'text-indigo-600 dark:text-indigo-400' },
   { tab: 'notifications', icon: Bell, label: 'Notifications', color: 'text-red-600 dark:text-red-400' },
@@ -126,6 +130,7 @@ export default function OwnerDashboard() {
           {activeTab === 'verify' && <VerifyContent />}
           {activeTab === 'students' && <StudentsList />}
           {activeTab === 'analytics' && <AnalyticsDashboard />}
+          {activeTab === 'menu' && <MenuPhotoPage />}
           {activeTab === 'settings' && <SettingsPanel />}
           {activeTab === 'profile' && <ProfilePage profile={profile || null} />}
           {activeTab === 'notifications' && (
