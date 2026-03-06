@@ -70,7 +70,7 @@ export function MenuPhotoPage() {
         <div className="mb-4">
           <h4 className="text-lg font-semibold mb-2">Upload Menu Photo</h4>
           <p className="text-sm text-muted-foreground">
-            Students will see this photo in their dashboard. Update it daily with today&apos;s menu.
+            Students will see this photo in their dashboard. Upload lunch or dinner menu and update before each meal time.
           </p>
         </div>
         
@@ -91,9 +91,11 @@ export function MenuPhotoPage() {
           💡 Tips for Menu Photos
         </h5>
         <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
+          <li>• Upload separate photos for lunch and dinner menus</li>
+          <li>• Remove or replace the current photo to upload a different meal menu</li>
           <li>• Take clear, well-lit photos of the menu board</li>
           <li>• Include all meal items and prices</li>
-          <li>• Update daily before lunch time</li>
+          <li>• Update before each meal time (lunch/dinner)</li>
           <li>• Maximum file size: 5MB</li>
         </ul>
       </div>

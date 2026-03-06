@@ -168,6 +168,11 @@ export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoU
             className="w-full h-48 sm:h-56 md:h-64 object-cover rounded-lg border-2 border-border"
             loading="lazy"
           />
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              💡 To upload a different menu (lunch or dinner), use &quot;Replace Photo&quot; or remove the current photo first.
+            </p>
+          </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
