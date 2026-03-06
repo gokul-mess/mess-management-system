@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react'
@@ -8,10 +8,11 @@ import { EnhancedAlert } from '@/components/ui/enhanced-alert'
 
 interface MenuPhotoUploadProps {
   currentPhotoUrl?: string | null
-  onUploadSuccess: (url: string) => void
+  onUploadSuccess: (url: string | null) => void
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'
 
 export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoUploadProps) {
   const [uploading, setUploading] = useState(false)
@@ -20,7 +21,7 @@ export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoU
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const extractFileName = (url: string): string | null => {
     try {
@@ -56,6 +57,7 @@ export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoU
       const { data: settings, error: fetchError } = await supabase
         .from('mess_settings')
         .select('id, menu_photo_url')
+        .eq('id', SETTINGS_ID)
         .single()
 
       if (fetchError) throw new Error('Settings not found. Please contact admin.')
@@ -118,6 +120,7 @@ export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoU
       const { data: settings, error: fetchError } = await supabase
         .from('mess_settings')
         .select('id, menu_photo_url')
+        .eq('id', SETTINGS_ID)
         .single()
 
       if (fetchError) throw new Error('Settings not found')
@@ -137,7 +140,7 @@ export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoU
       }
 
       setPreview(null)
-      onUploadSuccess('')
+      onUploadSuccess(null)
       setSuccess('Menu photo removed successfully')
       setTimeout(() => setSuccess(null), 3000)
     } catch (error) {
@@ -158,6 +161,7 @@ export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoU
       )}
       {preview ? (
         <div className="relative group space-y-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={preview}
             alt="Menu"

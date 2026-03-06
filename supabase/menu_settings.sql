@@ -14,12 +14,14 @@ create policy "Everyone can view settings" on public.mess_settings
   for select using (true);
 
 create policy "Owners can update settings" on public.mess_settings
-  for all using (
+  for update using (
     exists ( select 1 from public.users where id = auth.uid() and role = 'OWNER' )
   );
 
--- Insert default row
-insert into public.mess_settings (id) values ('00000000-0000-0000-0000-000000000001');
+-- Insert default row (idempotent)
+insert into public.mess_settings (id) 
+values ('00000000-0000-0000-0000-000000000001')
+on conflict (id) do nothing;
 
 -- Storage bucket policy (Run this in Supabase Dashboard > Storage)
 -- Create a bucket named 'menu-photos' with public access

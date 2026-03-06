@@ -1,17 +1,20 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { MenuPhotoUpload } from './menu-photo-upload'
 import { UtensilsCrossed, Calendar, Clock } from 'lucide-react'
 
+const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'
+
 export function MenuPhotoPage() {
   const [menuPhotoUrl, setMenuPhotoUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     loadMenuPhoto()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadMenuPhoto = async () => {
@@ -19,6 +22,7 @@ export function MenuPhotoPage() {
       const { data } = await supabase
         .from('mess_settings')
         .select('menu_photo_url')
+        .eq('id', SETTINGS_ID)
         .single()
       
       if (data?.menu_photo_url) {
@@ -40,10 +44,10 @@ export function MenuPhotoPage() {
             <h3 className="text-2xl font-bold">Daily Menu Photo</h3>
           </div>
           <p className="text-sm text-muted-foreground">
-            Upload today's menu photo for students to view
+            Upload today&apos;s menu photo for students to view
           </p>
         </div>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <div className="hidden sm:flex items-center gap-4 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4" />
             {new Date().toLocaleDateString('en-IN', { 
@@ -66,7 +70,7 @@ export function MenuPhotoPage() {
         <div className="mb-4">
           <h4 className="text-lg font-semibold mb-2">Upload Menu Photo</h4>
           <p className="text-sm text-muted-foreground">
-            Students will see this photo in their dashboard. Update it daily with today's menu.
+            Students will see this photo in their dashboard. Update it daily with today&apos;s menu.
           </p>
         </div>
         

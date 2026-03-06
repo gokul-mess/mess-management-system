@@ -1,20 +1,22 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { UtensilsCrossed, X } from 'lucide-react'
+
+const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'
 
 export function MenuCard() {
   const [menuUrl, setMenuUrl] = useState<string | null>(null)
   const [showFullScreen, setShowFullScreen] = useState(false)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     const fetchMenu = async () => {
       const { data } = await supabase
         .from('mess_settings')
         .select('menu_photo_url')
-        .eq('id', '00000000-0000-0000-0000-000000000001')
+        .eq('id', SETTINGS_ID)
         .single()
       
       if (data?.menu_photo_url) {
@@ -29,8 +31,9 @@ export function MenuCard() {
       .on('postgres_changes', { 
         event: '*', 
         schema: 'public', 
-        table: 'mess_settings' 
-      }, (payload: any) => {
+        table: 'mess_settings',
+        filter: `id=eq.${SETTINGS_ID}`
+      }, (payload: { new?: { menu_photo_url?: string | null } }) => {
         setMenuUrl(payload.new?.menu_photo_url || null)
       })
       .subscribe()
@@ -52,10 +55,11 @@ export function MenuCard() {
         <div className="p-4 bg-gradient-to-r from-orange-50 to-transparent dark:from-orange-900/20 border-b border-border">
           <div className="flex items-center gap-2">
             <UtensilsCrossed className="w-5 h-5 text-orange-600" />
-            <h3 className="font-semibold">Today's Menu</h3>
+            <h3 className="font-semibold">Today&apos;s Menu</h3>
           </div>
         </div>
         <div className="p-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img 
             src={menuUrl} 
             alt="Today's Menu" 
@@ -78,6 +82,7 @@ export function MenuCard() {
           >
             <X className="w-6 h-6 text-white" />
           </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img 
             src={menuUrl} 
             alt="Today's Menu" 

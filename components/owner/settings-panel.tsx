@@ -19,12 +19,14 @@ import {
   ChevronUp,
   Sparkles,
   Crown,
-  Zap
+  Zap,
+  UtensilsCrossed
 } from 'lucide-react'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
 import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 import { MenuPhotoUpload } from './menu-photo-upload'
-import { UtensilsCrossed } from 'lucide-react'
+
+const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'
 
 interface SettingsData {
   mealPricing: {
@@ -140,7 +142,7 @@ export function SettingsPanel() {
     const { data: menuSettings } = await supabase
       .from('mess_settings')
       .select('menu_photo_url')
-      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .eq('id', SETTINGS_ID)
       .single()
     
     if (menuSettings?.menu_photo_url) {
@@ -791,7 +793,7 @@ export function SettingsPanel() {
                   {expandedSections.menuPhoto && (
                     <div className="p-4 animate-in slide-in-from-top-2 duration-300">
                       <p className="text-sm text-muted-foreground mb-4">
-                        Upload today's menu photo for students to view
+                        Upload today&apos;s menu photo for students to view
                       </p>
                       <MenuPhotoUpload 
                         currentPhotoUrl={menuPhotoUrl}

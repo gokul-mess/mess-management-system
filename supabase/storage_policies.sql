@@ -1,23 +1,32 @@
 -- STORAGE BUCKET POLICIES FOR MENU PHOTOS
 -- Run this after creating the 'menu-photos' bucket in Supabase Storage
 
--- Allow authenticated users to upload
-CREATE POLICY "Authenticated users can upload menu photos"
+-- Allow only owners to upload
+CREATE POLICY "Only owners can upload menu photos"
 ON storage.objects FOR INSERT
 TO authenticated
-WITH CHECK (bucket_id = 'menu-photos');
+WITH CHECK (
+  bucket_id = 'menu-photos' AND
+  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'OWNER')
+);
 
--- Allow authenticated users to update
-CREATE POLICY "Authenticated users can update menu photos"
+-- Allow only owners to update
+CREATE POLICY "Only owners can update menu photos"
 ON storage.objects FOR UPDATE
 TO authenticated
-USING (bucket_id = 'menu-photos');
+USING (
+  bucket_id = 'menu-photos' AND
+  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'OWNER')
+);
 
--- Allow authenticated users to delete
-CREATE POLICY "Authenticated users can delete menu photos"
+-- Allow only owners to delete
+CREATE POLICY "Only owners can delete menu photos"
 ON storage.objects FOR DELETE
 TO authenticated
-USING (bucket_id = 'menu-photos');
+USING (
+  bucket_id = 'menu-photos' AND
+  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'OWNER')
+);
 
 -- Allow everyone to view
 CREATE POLICY "Anyone can view menu photos"
