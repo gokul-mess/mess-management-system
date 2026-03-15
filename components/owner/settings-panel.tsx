@@ -19,10 +19,14 @@ import {
   ChevronUp,
   Sparkles,
   Crown,
-  Zap
+  Zap,
+  UtensilsCrossed
 } from 'lucide-react'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
 import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
+import { MenuPhotoUpload } from './menu-photo-upload'
+
+const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'
 
 interface SettingsData {
   mealPricing: {
@@ -113,8 +117,10 @@ export function SettingsPanel() {
     mealPricing: true,
     subscriptionPlans: true,
     businessInfo: true,
+    menuPhoto: true,
     systemInfo: false
   })
+  const [menuPhotoUrl, setMenuPhotoUrl] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
   const [saveButtonState, setSaveButtonState] = useState<'idle' | 'saving' | 'success'>('idle')
   
@@ -131,6 +137,16 @@ export function SettingsPanel() {
           ownerEmail: user.email || ''
         }
       }))
+    }
+    
+    const { data: menuSettings } = await supabase
+      .from('mess_settings')
+      .select('menu_photo_url')
+      .eq('id', SETTINGS_ID)
+      .single()
+    
+    if (menuSettings?.menu_photo_url) {
+      setMenuPhotoUrl(menuSettings.menu_photo_url)
     }
   }
 
@@ -753,6 +769,36 @@ export function SettingsPanel() {
                           </p>
                         )}
                       </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Menu Photo Section */}
+                <div className="border border-border rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => toggleSection('menuPhoto')}
+                    className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-orange-50 to-transparent dark:from-orange-900/20 hover:from-orange-100 dark:hover:from-orange-900/30 transition-all duration-300"
+                  >
+                    <div className="flex items-center gap-3">
+                      <UtensilsCrossed className="w-5 h-5 text-orange-600" />
+                      <h4 className="text-lg font-semibold">Mess Menu Photo</h4>
+                    </div>
+                    {expandedSections.menuPhoto ? (
+                      <ChevronUp className="w-5 h-5 transition-transform duration-300" />
+                    ) : (
+                      <ChevronDown className="w-5 h-5 transition-transform duration-300" />
+                    )}
+                  </button>
+                  
+                  {expandedSections.menuPhoto && (
+                    <div className="p-4 animate-in slide-in-from-top-2 duration-300">
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Upload today&apos;s menu photo for students to view
+                      </p>
+                      <MenuPhotoUpload 
+                        currentPhotoUrl={menuPhotoUrl}
+                        onUploadSuccess={(url) => setMenuPhotoUrl(url)}
+                      />
                     </div>
                   )}
                 </div>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useAnimatedCounter } from '@/hooks/use-animated-counter'
+import { MenuCard } from './menu-card'
 import {
   Clock,
   CheckCircle,
@@ -279,6 +280,9 @@ export function StudentDashboardContent({
           delay="700ms"
         />
       </div>
+
+      {/* Menu Card */}
+      <MenuCard />
 
       {/* Subscription Alerts */}
       {daysRemaining <= 7 && daysRemaining > 0 && (

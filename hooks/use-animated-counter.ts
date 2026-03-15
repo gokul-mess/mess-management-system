@@ -28,8 +28,11 @@ export function useAnimatedCounter({
   useEffect(() => {
     // When disabled or target is non-positive, snap immediately
     if (!enabled || target <= 0) {
-      setValue(target > 0 ? target : 0)
-      return
+      // Use setTimeout to avoid setState in effect
+      const timer = setTimeout(() => {
+        setValue(target > 0 ? target : 0)
+      }, 0)
+      return () => clearTimeout(timer)
     }
 
     const increment = target / steps

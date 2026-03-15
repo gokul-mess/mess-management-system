@@ -19,19 +19,15 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
   const supabase = createClient()
   const { loading, error, execute, clearMessages } = useAsyncOperation('Verify Meal')
 
-  // Fast verification by Student ID
   const quickVerifyById = async () => {
     if (!shortId || shortId.trim() === '') return
-    
     clearMessages()
 
     await execute(async () => {
-      // Get current hour to determine meal type
       const hour = new Date().getHours()
       const mealType = hour < 16 ? 'LUNCH' : 'DINNER'
       const today = new Date().toISOString().split('T')[0]
 
-      // Single optimized query: search student and check if already logged
       const { data: student, error: studentError } = await supabase
         .from('users')
         .select('id, full_name, unique_short_id, photo_url, is_active')
@@ -39,15 +35,9 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         .eq('role', 'STUDENT')
         .single()
 
-      if (studentError || !student) {
-        throw new Error('Student not found. Please check the ID.')
-      }
+      if (studentError || !student) throw new Error('Student not found. Please check the ID.')
+      if (!student.is_active) throw new Error('Student subscription is inactive. Please renew.')
 
-      if (!student.is_active) {
-        throw new Error('Student subscription is inactive. Please renew.')
-      }
-
-      // Check if already logged
       const { data: existingLog } = await supabase
         .from('daily_logs')
         .select('log_id')
@@ -56,49 +46,32 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         .eq('meal_type', mealType)
         .maybeSingle()
 
-      if (existingLog) {
-        throw new Error(`${mealType} already logged for ${student.full_name} today`)
-      }
+      if (existingLog) throw new Error(`${mealType} already logged for ${student.full_name} today`)
 
-      // Insert meal log
       const { error: insertError } = await supabase
         .from('daily_logs')
-        .insert({
-          user_id: student.id,
-          meal_type: mealType,
-          status: 'CONSUMED',
-          access_method: 'SELF_ID'
-        })
+        .insert({ user_id: student.id, meal_type: mealType, status: 'CONSUMED', access_method: 'SELF_ID' })
 
       if (insertError) throw insertError
 
-      if (onSuccess) {
-        onSuccess({ student, mealType })
-      }
+      if (onSuccess) onSuccess({ student, mealType })
 
-      // Quick reset for next student
       setTimeout(() => {
         setShortId('')
-        if (inputRef.current) {
-          inputRef.current.focus()
-        }
+        if (inputRef.current) inputRef.current.focus()
       }, 1000)
     })
   }
 
-  // Verify by OTP (for parcel collection)
   const quickVerifyByOTP = async () => {
     if (!otpCode || otpCode.trim() === '') return
-    
     clearMessages()
 
     await execute(async () => {
-      // Get current hour to determine meal type
       const hour = new Date().getHours()
       const mealType = hour < 16 ? 'LUNCH' : 'DINNER'
       const today = new Date().toISOString().split('T')[0]
 
-      // Find valid OTP
       const { data: otpRecord, error: otpError } = await supabase
         .from('parcel_otps')
         .select('otp_id, user_id, expires_at, is_used, users!inner(id, full_name, unique_short_id, photo_url, is_active)')
@@ -106,14 +79,8 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         .eq('is_used', false)
         .single()
 
-      if (otpError || !otpRecord) {
-        throw new Error('Invalid or expired OTP. Please check the code.')
-      }
-
-      // Check if OTP is expired
-      if (new Date(otpRecord.expires_at) < new Date()) {
-        throw new Error('OTP has expired. Please generate a new one.')
-      }
+      if (otpError || !otpRecord) throw new Error('Invalid or expired OTP. Please check the code.')
+      if (new Date(otpRecord.expires_at) < new Date()) throw new Error('OTP has expired. Please generate a new one.')
 
       const student = otpRecord.users as unknown as {
         id: string
@@ -123,11 +90,8 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         is_active: boolean
       }
 
-      if (!student.is_active) {
-        throw new Error('Student subscription is inactive. Please renew.')
-      }
+      if (!student.is_active) throw new Error('Student subscription is inactive. Please renew.')
 
-      // Check if already logged
       const { data: existingLog } = await supabase
         .from('daily_logs')
         .select('log_id')
@@ -136,23 +100,14 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         .eq('meal_type', mealType)
         .maybeSingle()
 
-      if (existingLog) {
-        throw new Error(`${mealType} already logged for ${student.full_name} today`)
-      }
+      if (existingLog) throw new Error(`${mealType} already logged for ${student.full_name} today`)
 
-      // Insert meal log with PARCEL_OTP method
       const { error: insertError } = await supabase
         .from('daily_logs')
-        .insert({
-          user_id: student.id,
-          meal_type: mealType,
-          status: 'CONSUMED',
-          access_method: 'PARCEL_OTP'
-        })
+        .insert({ user_id: student.id, meal_type: mealType, status: 'CONSUMED', access_method: 'PARCEL_OTP' })
 
       if (insertError) throw insertError
 
-      // Mark OTP as used
       const { error: updateError } = await supabase
         .from('parcel_otps')
         .update({ is_used: true })
@@ -160,27 +115,19 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
 
       if (updateError) throw updateError
 
-      if (onSuccess) {
-        onSuccess({ student, mealType, method: 'OTP' })
-      }
+      if (onSuccess) onSuccess({ student, mealType, method: 'OTP' })
 
-      // Quick reset
       setTimeout(() => {
         setOtpCode('')
-        if (inputRef.current) {
-          inputRef.current.focus()
-        }
+        if (inputRef.current) inputRef.current.focus()
       }, 1000)
     })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !loading) {
-      if (verifyMode === 'ID' && shortId) {
-        quickVerifyById()
-      } else if (verifyMode === 'OTP' && otpCode) {
-        quickVerifyByOTP()
-      }
+      if (verifyMode === 'ID' && shortId) quickVerifyById()
+      else if (verifyMode === 'OTP' && otpCode) quickVerifyByOTP()
     }
   }
 
@@ -189,30 +136,18 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
       {/* Mode Toggle */}
       <div className="flex gap-2 p-1 bg-accent/50 rounded-lg">
         <button
-          onClick={() => {
-            setVerifyMode('ID')
-            setOtpCode('')
-            clearMessages()
-          }}
+          onClick={() => { setVerifyMode('ID'); setOtpCode(''); clearMessages() }}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-md font-medium transition-all ${
-            verifyMode === 'ID'
-              ? 'bg-white dark:bg-zinc-900 shadow-sm text-primary'
-              : 'text-muted-foreground hover:text-foreground'
+            verifyMode === 'ID' ? 'bg-white dark:bg-zinc-900 shadow-sm text-primary' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <Hash className="w-4 h-4" />
           Student ID
         </button>
         <button
-          onClick={() => {
-            setVerifyMode('OTP')
-            setShortId('')
-            clearMessages()
-          }}
+          onClick={() => { setVerifyMode('OTP'); setShortId(''); clearMessages() }}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-md font-medium transition-all ${
-            verifyMode === 'OTP'
-              ? 'bg-white dark:bg-zinc-900 shadow-sm text-primary'
-              : 'text-muted-foreground hover:text-foreground'
+            verifyMode === 'OTP' ? 'bg-white dark:bg-zinc-900 shadow-sm text-primary' : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <Package className="w-4 h-4" />
@@ -232,11 +167,7 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
                 ref={inputRef}
                 type="text"
                 value={shortId}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '')
-                  setShortId(value)
-                  clearMessages()
-                }}
+                onChange={(e) => { setShortId(e.target.value.replace(/\D/g, '')); clearMessages() }}
                 onKeyDown={handleKeyDown}
                 placeholder="Enter ID"
                 className="flex-1 px-4 py-3 rounded-lg border-2 border-input bg-background text-center text-2xl sm:text-3xl font-mono tracking-wider focus:outline-none focus:ring-4 focus:ring-primary/30 focus:border-primary focus:shadow-lg focus:shadow-primary/20 transition-all"
@@ -279,11 +210,7 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
                 ref={inputRef}
                 type="text"
                 value={otpCode}
-                onChange={(e) => {
-                  const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')
-                  setOtpCode(value)
-                  clearMessages()
-                }}
+                onChange={(e) => { setOtpCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); clearMessages() }}
                 onKeyDown={handleKeyDown}
                 placeholder="Enter OTP"
                 className="flex-1 px-4 py-3 rounded-lg border-2 border-input bg-background text-center text-2xl sm:text-3xl font-mono tracking-wider focus:outline-none focus:ring-4 focus:ring-primary/30 focus:border-primary focus:shadow-lg focus:shadow-primary/20 transition-all"
@@ -318,12 +245,7 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
           </div>
         )}
 
-        {error && (
-          <ErrorMessage 
-            error={error} 
-            onDismiss={clearMessages}
-          />
-        )}
+        {error && <ErrorMessage error={error} onDismiss={clearMessages} />}
       </div>
 
       {/* Quick stats */}
