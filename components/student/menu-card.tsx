@@ -59,12 +59,21 @@ export function MenuCard() {
           </div>
         </div>
         <div className="p-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img 
-            src={menuUrl} 
-            alt="Today's Menu" 
-            className="w-full h-48 object-cover rounded-lg"
-          />
+          <div className="relative w-full overflow-hidden rounded-lg flex justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={menuUrl}
+              alt=""
+              aria-hidden
+              className="absolute inset-0 w-full h-full object-cover scale-110 blur-lg brightness-50"
+            />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={menuUrl}
+              alt="Today's Menu"
+              className="relative z-10 max-h-[480px] w-auto object-contain drop-shadow-lg"
+            />
+          </div>
           <p className="text-xs text-muted-foreground mt-2 text-center">
             Click to view full size
           </p>

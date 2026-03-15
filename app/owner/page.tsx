@@ -123,7 +123,7 @@ export default function OwnerDashboard() {
           onSearchAction={setActiveTab}
         />
 
-        <div className="flex-1 overflow-y-auto p-8 bg-gray-50 dark:bg-zinc-950">
+        <div className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-zinc-950 flex flex-col">
           {activeTab === 'dashboard' && (
             <OwnerDashboardContent stats={todayStats} logs={logs || null} isLoading={isLoading} />
           )}

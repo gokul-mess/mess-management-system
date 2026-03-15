@@ -11,7 +11,7 @@ interface MenuPhotoUploadProps {
   onUploadSuccess: (url: string | null) => void
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'
 
 export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoUploadProps) {
@@ -152,55 +152,39 @@ export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoU
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {error && (
         <EnhancedAlert type="error" title="Error" message={error} onDismiss={() => setError(null)} />
       )}
       {success && (
         <EnhancedAlert type="success" title="Success" message={success} autoDismiss autoDismissDelay={3000} />
       )}
+
       {preview ? (
-        <div className="relative group space-y-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={preview}
-            alt="Menu"
-            className="w-full h-48 sm:h-56 md:h-64 object-cover rounded-lg border-2 border-border"
-            loading="lazy"
-          />
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
-            <p className="text-xs text-amber-800 dark:text-amber-200">
-              💡 To upload a different menu (lunch or dinner), use &quot;Replace Photo&quot; or remove the current photo first.
-            </p>
-          </div>
-          <div className="flex gap-2">
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 w-36">
             <Button
               variant="outline"
-              className="flex-1"
+              className="w-full h-10 text-sm"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
             >
-              {uploading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Uploading...
-                </>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4 mr-2" />
-                  Replace Photo
-                </>
-              )}
+              {uploading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 mr-1.5" />}
+              {uploading ? 'Uploading...' : 'Replace'}
             </Button>
             <Button
               variant="destructive"
+              className="w-full h-10 text-sm"
               onClick={handleRemove}
               disabled={removing}
             >
-              {removing ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4 mr-2" />}
-              {!removing && 'Remove'}
+              {removing ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <X className="w-3.5 h-3.5 mr-1.5" />}
+              {removing ? 'Removing...' : 'Remove'}
             </Button>
           </div>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            💡 Replace or remove to upload a different meal menu.
+          </p>
           <input
             id="menu-photo-input"
             ref={fileInputRef}
@@ -212,15 +196,16 @@ export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoU
           />
         </div>
       ) : (
-        <>
-          <label 
+        <div className="space-y-3">
+          <label
             htmlFor="menu-photo-input"
-            className="flex flex-col items-center justify-center w-full h-48 sm:h-56 md:h-64 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors bg-muted/50"
+            className="flex flex-col items-center justify-center w-full h-46 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary hover:bg-muted/60 transition-colors bg-muted/30"
             aria-label="Upload menu photo"
           >
-            <div className="flex flex-col items-center justify-center pt-5 pb-6 px-4 text-center">
-              <ImageIcon className="w-10 h-10 sm:w-12 sm:h-12 text-muted-foreground mb-3" />
-              <p className="text-xs sm:text-sm text-muted-foreground">Click to upload menu photo (max 5MB)</p>
+            <div className="flex flex-col items-center gap-2 text-center px-4">
+              <ImageIcon className="w-10 h-10 text-muted-foreground" />
+              <p className="text-sm font-medium text-muted-foreground">Click to upload menu photo</p>
+              <p className="text-xs text-muted-foreground">PNG, JPG up to 5MB</p>
             </div>
           </label>
           <input
@@ -233,24 +218,18 @@ export function MenuPhotoUpload({ currentPhotoUrl, onUploadSuccess }: MenuPhotoU
             disabled={uploading}
           />
           <Button
-            variant="outline"
+            variant="default"
             className="w-full"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
           >
             {uploading ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Uploading...
-              </>
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Uploading...</>
             ) : (
-              <>
-                <Upload className="w-4 h-4 mr-2" />
-                Upload Menu Photo
-              </>
+              <><Upload className="w-4 h-4 mr-2" />Upload Menu Photo</>
             )}
           </Button>
-        </>
+        </div>
       )}
     </div>
   )
