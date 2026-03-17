@@ -20,4 +20,8 @@ export const queryKeys = {
     all: ['all_logs'] as const,
     byUser: (userId: string) => ['all_logs', userId] as const,
   },
+  balanceDays: {
+    all: ['balance_days'] as const,
+    byUser: (userId: string) => ['balance_days', userId] as const,
+  },
 } as const

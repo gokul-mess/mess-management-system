@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useAnimatedCounter } from '@/hooks/use-animated-counter'
+import { useBalanceDays } from '@/hooks/use-balance-days'
 import { MenuCard } from './menu-card'
 import {
   Clock,
@@ -16,7 +17,6 @@ import {
   Sparkles,
   TrendingUp,
   Bell,
-
 } from 'lucide-react'
 
 // --- StatCard ---
@@ -153,6 +153,7 @@ export function StudentDashboardContent({
 }: StudentDashboardContentProps): React.ReactElement {
   const animatedDays = useAnimatedCounter({ target: daysRemaining, enabled: !isLoading })
   const animatedMeals = useAnimatedCounter({ target: totalMeals, enabled: !isLoading })
+  const { data: balance, isPending: balanceLoading } = useBalanceDays(profile?.id)
 
   if (isLoading) {
     return (
@@ -250,6 +251,36 @@ export function StudentDashboardContent({
           subtitle={hasDinner ? 'consumed' : 'not yet'}
           color={hasDinner ? 'green' : 'gray'}
           delay="300ms"
+        />
+      </div>
+
+      {/* Balance Days Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-6">
+        <StatCard
+          icon={TrendingUp}
+          title="Balance Days"
+          value={balanceLoading ? '...' : (balance?.balanceDays ?? 0).toString()}
+          subtitle={`of ${balance?.totalDays ?? 0} total days`}
+          color={(balance?.balanceDays ?? 0) > 7 ? 'green' : (balance?.balanceDays ?? 0) > 3 ? 'yellow' : 'red'}
+          delay="400ms"
+          trend={(balance?.balanceDays ?? 0) > 0 ? 'up' : 'down'}
+          isUrgent={!balanceLoading && (balance?.balanceDays ?? 0) < 5}
+        />
+        <StatCard
+          icon={Utensils}
+          title="Consumed Days"
+          value={balanceLoading ? '...' : (balance?.consumedDays ?? 0).toString()}
+          subtitle="meals logged"
+          color="blue"
+          delay="500ms"
+        />
+        <StatCard
+          icon={Calendar}
+          title="Leave Days"
+          value={balanceLoading ? '...' : (balance?.leaveDays ?? 0).toString()}
+          subtitle="approved leaves"
+          color="gray"
+          delay="600ms"
         />
       </div>
 
