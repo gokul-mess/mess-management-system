@@ -96,7 +96,7 @@ export function DashboardHeader({
               {currentTab && (
                 <>
                   <currentTab.icon className={`w-5 h-5 ${currentTab.color} animate-pulse`} />
-                  <span className={`bg-gradient-to-r ${currentTab.color} bg-clip-text text-transparent`}>
+                  <span className={currentTab.color}>
                     {currentTab.label}
                   </span>
                 </>

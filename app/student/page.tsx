@@ -14,6 +14,7 @@ import { LeaveContent } from '@/components/student/leave-content'
 import { HistoryContent } from '@/components/student/history-content'
 import { ProfileContent } from '@/components/student/profile-content'
 import { NotificationsContent } from '@/components/shared/notifications-content'
+import { ReportsContent } from '@/components/student/reports-content'
 import type { SidebarNavItem } from '@/components/shared/dashboard-sidebar'
 import type { HeaderTab } from '@/components/shared/dashboard-header'
 import {
@@ -23,6 +24,7 @@ import {
   History,
   User,
   Sparkles,
+  FileText,
 } from 'lucide-react'
 import { signOut } from '@/app/auth/actions'
 
@@ -33,6 +35,7 @@ const STUDENT_NAV_ITEMS: SidebarNavItem[] = [
   { icon: Package, label: 'Parcel OTP', tab: 'parcel' },
   { icon: Calendar, label: 'Leave Request', tab: 'leave' },
   { icon: History, label: 'Meal History', tab: 'history' },
+  { icon: FileText, label: 'Reports', tab: 'reports' },
   { icon: User, label: 'My Profile', tab: 'profile' },
 ]
 
@@ -41,6 +44,7 @@ const STUDENT_HEADER_TABS: HeaderTab[] = [
   { tab: 'parcel', icon: Package, label: 'Parcel OTP', color: 'text-blue-600 dark:text-blue-400' },
   { tab: 'leave', icon: Calendar, label: 'Leave Request', color: 'text-purple-600 dark:text-purple-400' },
   { tab: 'history', icon: History, label: 'Meal History', color: 'text-green-600 dark:text-green-400' },
+  { tab: 'reports', icon: FileText, label: 'Reports', color: 'text-cyan-600 dark:text-cyan-400' },
   { tab: 'profile', icon: User, label: 'My Profile', color: 'text-orange-600 dark:text-orange-400' },
 ]
 
@@ -180,6 +184,7 @@ export default function StudentDashboard() {
             )}
             {activeTab === 'leave' && <LeaveContent profile={profile || null} />}
             {activeTab === 'history' && <HistoryContent profile={profile || null} />}
+            {activeTab === 'reports' && <ReportsContent profile={profile || null} />}
             {activeTab === 'profile' && <ProfileContent profile={profile || null} onSignOut={handleSignOut} />}
             {activeTab === 'notifications' && <NotificationsContent notifications={notifications} />}
           </div>
