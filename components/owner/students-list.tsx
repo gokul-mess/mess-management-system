@@ -1176,7 +1176,6 @@ export function StudentsList() {
                   onClick={() => {
                     if (selectedStudent && confirm(`Are you sure you want to delete ${selectedStudent.full_name}? This action cannot be undone.`)) {
                       // TODO: Implement delete functionality
-                      console.log('Delete student:', selectedStudent.id)
                     }
                   }}
                 >

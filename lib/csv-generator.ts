@@ -31,8 +31,15 @@ export function generateAttendanceCSV(data: CSVData): void {
     'Recorded At'
   ]
 
-  // Prepare CSV rows
-  const rows = data.logs.map(log => {
+  // Sort logs by date first
+  const sortedLogs = [...data.logs].sort((a, b) => {
+    const dateA = new Date(a.date)
+    const dateB = new Date(b.date)
+    return dateA.getTime() - dateB.getTime()
+  })
+
+  // Prepare CSV rows from sorted logs
+  const rows = sortedLogs.map(log => {
     const date = new Date(log.date)
     const dayName = date.toLocaleDateString('en-IN', { weekday: 'long' })
     const formattedDate = date.toLocaleDateString('en-IN', { 
@@ -56,13 +63,6 @@ export function generateAttendanceCSV(data: CSVData): void {
       log.status.toUpperCase(),
       recordedAt
     ]
-  })
-
-  // Sort by date
-  rows.sort((a, b) => {
-    const dateA = new Date(data.logs[rows.indexOf(a)].date)
-    const dateB = new Date(data.logs[rows.indexOf(b)].date)
-    return dateA.getTime() - dateB.getTime()
   })
 
   // Create CSV content

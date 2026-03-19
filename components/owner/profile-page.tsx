@@ -185,10 +185,7 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
     const nameValid = validateField('full_name', formData.full_name)
     const phoneValid = formData.phone ? validateField('phone', formData.phone) : true // Phone is optional
     
-    console.log('Validation:', { nameValid, phoneValid, formData })
-    
     if (!nameValid || !phoneValid) {
-      console.log('Validation failed')
       return
     }
 
@@ -199,8 +196,6 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
       if (!profile?.id) {
         throw new Error('Profile ID not found')
       }
-
-      console.log('Saving profile:', profile.id, formData)
 
       // Update the user profile in the database
       const { error: updateError } = await supabase
@@ -218,8 +213,6 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
         throw updateError
       }
 
-      console.log('Profile saved successfully')
-      
       // Set success state
       setSaveButtonState('success')
       

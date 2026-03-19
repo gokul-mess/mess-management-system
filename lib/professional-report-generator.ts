@@ -43,6 +43,19 @@ interface ReportData {
   periodType?: string // e.g., "Current Mess Month", "Previous Mess Month", etc.
 }
 
+/**
+ * Sanitize a string so it can be safely used as part of a filename.
+ * - Replaces whitespace with underscores
+ * - Replaces filesystem-reserved / unsafe characters with underscores
+ * - Collapses multiple underscores and trims them from the ends
+ */
+function sanitizeFileNameComponent(input: string): string {
+  const withUnderscores = input.replace(/\s+/g, '_')
+  const safeCharsOnly = withUnderscores.replace(/[^a-zA-Z0-9_-]/g, '_')
+  const collapsed = safeCharsOnly.replace(/_+/g, '_').replace(/^_+|_+$/g, '')
+  return collapsed || 'Student'
+}
+
 // Brand colors matching website theme
 // const COLORS = {
 //   primary: '#2E7D32',
@@ -251,23 +264,9 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   const totalDays = Math.floor((endOfPeriod.getTime() - startOfPeriod.getTime()) / (1000 * 60 * 60 * 24)) + 1
   
   // Use consistent meal plan - default to DL if not set
-  console.log('RAW meal_plan from data:', data.student.meal_plan, 'Type:', typeof data.student.meal_plan)
   const mealPlan = data.student.meal_plan || 'DL'
-  console.log('AFTER default, mealPlan:', mealPlan)
   const mealsPerDay = mealPlan === 'DL' ? 2 : 1
-  console.log('mealsPerDay calculated as:', mealsPerDay)
   const expectedMeals = totalDays * mealsPerDay
-  
-  console.log('Statistics Debug:', {
-    totalDays,
-    mealPlan,
-    mealsPerDay,
-    expectedMeals,
-    today: now.toISOString(),
-    todayDateKey,
-    startDate: startDateObj.toISOString(),
-    endDate: endDateObj.toISOString()
-  })
   
   // Count only CONSUMED/VERIFIED/TAKEN meals (only past dates)
   let mealsTaken = 0
@@ -291,21 +290,9 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   // Meals skipped = past expected meals - meals taken - past leave meals
   const mealsSkipped = Math.max(0, pastExpectedMeals - mealsTaken - pastLeaveMeals)
   const approvedLeave = leaveDaysInPeriod
-  const attendanceRate = expectedMeals > 0 ? ((mealsTaken / expectedMeals) * 100).toFixed(1) : '0'
   
-  console.log('Statistics Result:', {
-    expectedMeals,
-    pastExpectedMeals,
-    mealsTaken,
-    leaveMealsInPeriod,
-    pastLeaveMeals,
-    leaveDaysInPeriod,
-    mealsSkipped,
-    approvedLeave,
-    attendanceRate,
-    pastDays,
-    totalDays
-  })
+  // Attendance rate is calculated based on past expected meals to align with mealsTaken (past dates only)
+  const attendanceRate = pastExpectedMeals > 0 ? ((mealsTaken / pastExpectedMeals) * 100).toFixed(1) : '0'
 
   // Count lunch and dinner (only consumed meals, only past dates)
   let lunchCount = 0
@@ -1291,6 +1278,8 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   }
 
   // Save PDF
-  const fileName = `Gokul_Mess_Report_${data.student.full_name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`
+  const safeStudentName = sanitizeFileNameComponent(data.student.full_name)
+  const datePart = new Date().toISOString().split('T')[0]
+  const fileName = `Gokul_Mess_Report_${safeStudentName}_${datePart}.pdf`
   doc.save(fileName)
 }

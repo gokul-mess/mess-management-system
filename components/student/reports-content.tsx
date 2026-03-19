@@ -367,8 +367,6 @@ export function ReportsContent({ profile }: ReportsContentProps) {
         console.error('Error fetching mess period:', messPeriodError)
       }
       
-      console.log('Mess period query result:', { messPeriodData, messPeriodError, userId: profile.id, dateRange: { start, end } })
-      
       const { data: logsData, error: logsError } = await supabase
         .from('daily_logs')
         .select('*')
@@ -485,9 +483,7 @@ export function ReportsContent({ profile }: ReportsContentProps) {
                 key={option.id}
                 onClick={() => {
                   setSelectedRange(option.id)
-                  if (option.id !== 'custom') {
-                    fetchRecordCount()
-                  }
+                  // fetchRecordCount will be triggered by useEffect when selectedRange changes
                 }}
                 className={`relative overflow-hidden rounded-xl p-4 border-2 transition-all duration-300 group ${
                   selectedRange === option.id

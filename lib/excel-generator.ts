@@ -1,6 +1,6 @@
 // Excel Generator for Attendance Data Export with Professional Formatting
 import * as XLSX from 'xlsx'
-import type { CellObject, WorkSheet } from 'xlsx'
+import type { WorkSheet } from 'xlsx'
 
 interface AttendanceRecord {
   date: string
@@ -36,6 +36,34 @@ interface ExcelData {
   includeDetailedTable?: boolean
 }
 
+/**
+ * Sanitize a string so it can be safely used as part of a filename.
+ * - Replaces whitespace with underscores
+ * - Replaces filesystem-reserved / unsafe characters with underscores
+ * - Collapses multiple underscores and trims them from the ends
+ */
+function sanitizeFileNameComponent(input: string): string {
+  const withUnderscores = input.replace(/\s+/g, '_')
+  const safeCharsOnly = withUnderscores.replace(/[^a-zA-Z0-9_-]/g, '_')
+  const collapsed = safeCharsOnly.replace(/_+/g, '_').replace(/^_+|_+$/g, '')
+  return collapsed || 'Student'
+}
+
+/**
+ * Sanitize cell values to prevent spreadsheet formula injection.
+ * If a value begins with =, +, -, or @, prefix it with a single quote.
+ */
+function sanitizeCellValue(value: unknown): unknown {
+  if (typeof value !== 'string' || value.length === 0) {
+    return value
+  }
+  const firstChar = value.charAt(0)
+  if (firstChar === '=' || firstChar === '+' || firstChar === '-' || firstChar === '@') {
+    return `'${value}`
+  }
+  return value
+}
+
 export function generateAttendanceExcel(data: ExcelData): void {
   // Create a new workbook
   const wb = XLSX.utils.book_new()
@@ -45,7 +73,7 @@ export function generateAttendanceExcel(data: ExcelData): void {
   
   // Track row indices for styling
   let currentRow = 0
-  const headerRows: number[] = []
+  // const headerRows: number[] = []
   const sectionTitleRows: number[] = []
   const tableHeaderRows: number[] = []
   const leaveRows: number[] = []
@@ -58,17 +86,22 @@ export function generateAttendanceExcel(data: ExcelData): void {
   sheetData.push([])
   currentRow++
   
-  sheetData.push(['Student Name:', data.student.full_name])
+  sheetData.push(['Student Name:', sanitizeCellValue(data.student.full_name)])
   currentRow++
   sheetData.push(['Student ID:', data.student.unique_short_id])
   currentRow++
-  sheetData.push(['Meal Plan:', data.student.meal_plan || 'Not Set'])
+  sheetData.push(['Meal Plan:', sanitizeCellValue(data.student.meal_plan || 'Not Set')])
   currentRow++
-  sheetData.push(['Report Period:', data.periodType || 'Custom Range'])
+  sheetData.push(['Report Period:', sanitizeCellValue(data.periodType || 'Custom Range')])
   currentRow++
-  sheetData.push(['Date Range:', `${new Date(data.dateRange.start).toLocaleDateString('en-IN')} to ${new Date(data.dateRange.end).toLocaleDateString('en-IN')}`])
+  sheetData.push([
+    'Date Range:',
+    sanitizeCellValue(
+      `${new Date(data.dateRange.start).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} to ${new Date(data.dateRange.end).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}`
+    ),
+  ])
   currentRow++
-  sheetData.push(['Generated On:', new Date().toLocaleString('en-IN')])
+  sheetData.push(['Generated On:', sanitizeCellValue(new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }))])
   currentRow++
   
   sheetData.push([])
@@ -388,84 +421,6 @@ export function generateAttendanceExcel(data: ExcelData): void {
   // Create worksheet from data
   const ws: WorkSheet = XLSX.utils.aoa_to_sheet(sheetData)
   
-  // Apply professional styling
-  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
-  
-  for (let R = range.s.r; R <= range.e.r; ++R) {
-    for (let C = range.s.c; C <= range.e.c; ++C) {
-      const cellAddress = XLSX.utils.encode_cell({ r: R, c: C })
-      if (!ws[cellAddress]) continue
-      
-      const cell = ws[cellAddress] as CellObject
-      
-      // Initialize cell style
-      if (!cell.s) cell.s = {}
-      
-      // Section title rows - Dark blue background, white bold text
-      if (sectionTitleRows.includes(R)) {
-        cell.s = {
-          fill: { fgColor: { rgb: "1F4788" } },
-          font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14 },
-          alignment: { horizontal: "left", vertical: "center" },
-          border: {
-            top: { style: "thin", color: { rgb: "000000" } },
-            bottom: { style: "thin", color: { rgb: "000000" } },
-            left: { style: "thin", color: { rgb: "000000" } },
-            right: { style: "thin", color: { rgb: "000000" } }
-          }
-        }
-      }
-      // Table header rows - Light blue background, bold text
-      else if (tableHeaderRows.includes(R)) {
-        cell.s = {
-          fill: { fgColor: { rgb: "4472C4" } },
-          font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "thin", color: { rgb: "000000" } },
-            bottom: { style: "thin", color: { rgb: "000000" } },
-            left: { style: "thin", color: { rgb: "000000" } },
-            right: { style: "thin", color: { rgb: "000000" } }
-          }
-        }
-      }
-      // Leave rows - Light yellow background
-      else if (leaveRows.includes(R)) {
-        cell.s = {
-          fill: { fgColor: { rgb: "FFF2CC" } },
-          font: { sz: 10 },
-          alignment: { horizontal: "center", vertical: "center" },
-          border: {
-            top: { style: "thin", color: { rgb: "D3D3D3" } },
-            bottom: { style: "thin", color: { rgb: "D3D3D3" } },
-            left: { style: "thin", color: { rgb: "D3D3D3" } },
-            right: { style: "thin", color: { rgb: "D3D3D3" } }
-          }
-        }
-      }
-      // Data rows with alternating colors
-      else if (cell.v !== undefined && cell.v !== '') {
-        const isEvenRow = R % 2 === 0
-        cell.s = {
-          fill: { fgColor: { rgb: isEvenRow ? "F2F2F2" : "FFFFFF" } },
-          font: { sz: 10 },
-          alignment: { horizontal: C === 0 ? "center" : "left", vertical: "center" },
-          border: {
-            top: { style: "thin", color: { rgb: "D3D3D3" } },
-            bottom: { style: "thin", color: { rgb: "D3D3D3" } },
-            left: { style: "thin", color: { rgb: "D3D3D3" } },
-            right: { style: "thin", color: { rgb: "D3D3D3" } }
-          }
-        }
-        
-        // Bold first column (labels)
-        if (C === 0 && !tableHeaderRows.includes(R) && !sectionTitleRows.includes(R)) {
-          cell.s.font = { ...cell.s.font, bold: true }
-        }
-      }
-    }
-  }
-  
   // Set column widths
   ws['!cols'] = [
     { wch: 10 },  // Sr.No.
@@ -476,14 +431,17 @@ export function generateAttendanceExcel(data: ExcelData): void {
     { wch: 25 }   // Recorded At
   ]
   
-  // Apply styles (note: basic XLSX doesn't support colors in free version, but structure is professional)
-  // For colored cells, you would need xlsx-style or ExcelJS library
+  // Note: Per-cell styling is intentionally omitted because the SheetJS CE `xlsx` package
+  // does not reliably persist styles in browser builds. For rich styling, consider
+  // switching to a library like ExcelJS or a style-enabled SheetJS fork.
   
   // Add worksheet to workbook
   XLSX.utils.book_append_sheet(wb, ws, 'Attendance Report')
   
-  // Generate file name
-  const fileName = `Attendance_${data.student.full_name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`
+  // Generate file name with sanitized student name
+  const safeStudentName = sanitizeFileNameComponent(data.student.full_name)
+  const datePart = new Date().toISOString().split('T')[0]
+  const fileName = `Attendance_${safeStudentName}_${datePart}.xlsx`
   
   // Write file
   XLSX.writeFile(wb, fileName)
