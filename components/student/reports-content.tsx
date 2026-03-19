@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { generateProfessionalReport } from '@/lib/professional-report-generator'
-import { generateDummyReportData } from '@/lib/generate-attendance-report'
+import { generateAttendanceExcel } from '@/lib/excel-generator'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
 import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 
@@ -52,12 +52,12 @@ export function ReportsContent({ profile }: ReportsContentProps) {
   } = useAsyncOperation('Generate Report')
   
   const {
-    loading: isGeneratingTest,
-    error: generateTestError,
-    success: generateTestSuccess,
-    execute: executeGenerateTest,
-    clearMessages: clearTestMessages
-  } = useAsyncOperation('Generate Test Report')
+    loading: isDownloadingExcel,
+    error: excelError,
+    success: excelSuccess,
+    execute: executeExcelDownload,
+    clearMessages: clearExcelMessages
+  } = useAsyncOperation('Download Excel')
 
   const getDateRange = async (): Promise<{ start: string; end: string }> => {
     const today = new Date()
@@ -195,15 +195,115 @@ export function ReportsContent({ profile }: ReportsContentProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRange, customStartDate, customEndDate])
 
-  const handleGenerateTestReport = async () => {
-    clearTestMessages()
+  const handleDownloadExcel = async () => {
+    if (!profile?.id) return
     
-    await executeGenerateTest(async () => {
-      const dummyData = generateDummyReportData()
-      await generateProfessionalReport({
-        ...dummyData,
+    clearExcelMessages()
+    
+    await executeExcelDownload(async () => {
+      const { start, end } = await getDateRange()
+      
+      if (selectedRange === 'custom') {
+        if (!customStartDate || !customEndDate) {
+          throw new Error('Please select both start and end dates')
+        }
+        if (new Date(customStartDate) > new Date(customEndDate)) {
+          throw new Error('Start date must be before end date')
+        }
+      }
+      
+      // Get period type label
+      let periodTypeLabel = ''
+      switch (selectedRange) {
+        case 'this_month':
+          periodTypeLabel = 'Current Mess Month'
+          break
+        case 'last_month':
+          periodTypeLabel = 'Previous Mess Month'
+          break
+        case 'last_3_months':
+          periodTypeLabel = 'Last 3 Mess Months'
+          break
+        case 'all_time':
+          periodTypeLabel = 'All Time'
+          break
+        case 'custom':
+          periodTypeLabel = 'Custom Range'
+          break
+      }
+      
+      const { data: studentData, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', profile.id)
+        .single()
+      
+      if (profileError) throw new Error('Failed to load profile data. Please try again.')
+      
+      const { data: logsData, error: logsError } = await supabase
+        .from('daily_logs')
+        .select('*')
+        .eq('user_id', profile.id)
+        .gte('date', start)
+        .lte('date', end)
+        .order('date', { ascending: true })
+      
+      if (logsError) throw new Error('Failed to load attendance data. Please try again.')
+      
+      if (!logsData || logsData.length === 0) {
+        throw new Error('No attendance data found for the selected period')
+      }
+      
+      // Fetch approved leaves for the period
+      const { data: leavesData, error: leavesError } = await supabase
+        .from('leaves')
+        .select('*')
+        .eq('user_id', profile.id)
+        .eq('is_approved', true)
+        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
+      
+      if (leavesError) {
+        console.error('Error fetching leaves:', leavesError)
+      }
+      
+      // Fetch the mess period that overlaps with the selected report date range
+      const { data: messPeriodData, error: messPeriodError } = await supabase
+        .from('mess_periods')
+        .select('*')
+        .eq('user_id', profile.id)
+        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      
+      if (messPeriodError) {
+        console.error('Error fetching mess period:', messPeriodError)
+      }
+      
+      const excelData = {
+        student: {
+          full_name: studentData.full_name || 'Student',
+          unique_short_id: studentData.unique_short_id || 0,
+          meal_plan: studentData.meal_plan,
+        },
+        logs: logsData.map(log => ({
+          date: log.date,
+          meal_type: log.meal_type,
+          status: log.status || 'VERIFIED',
+          created_at: log.created_at,
+        })),
+        leaves: leavesData || [],
+        messPeriod: messPeriodData ? {
+          start_date: messPeriodData.start_date,
+          end_date: messPeriodData.end_date,
+          original_end_date: messPeriodData.original_end_date,
+        } : null,
+        dateRange: { start, end },
+        periodType: periodTypeLabel,
         includeDetailedTable
-      })
+      }
+      
+      generateAttendanceExcel(excelData)
     })
   }
 
@@ -222,6 +322,26 @@ export function ReportsContent({ profile }: ReportsContentProps) {
         if (new Date(customStartDate) > new Date(customEndDate)) {
           throw new Error('Start date must be before end date')
         }
+      }
+      
+      // Get period type label
+      let periodTypeLabel = ''
+      switch (selectedRange) {
+        case 'this_month':
+          periodTypeLabel = 'Current Mess Month'
+          break
+        case 'last_month':
+          periodTypeLabel = 'Previous Mess Month'
+          break
+        case 'last_3_months':
+          periodTypeLabel = 'Last 3 Mess Months'
+          break
+        case 'all_time':
+          periodTypeLabel = 'All Time'
+          break
+        case 'custom':
+          periodTypeLabel = 'Custom Range'
+          break
       }
       
       const { data: studentData, error: profileError } = await supabase
@@ -298,7 +418,8 @@ export function ReportsContent({ profile }: ReportsContentProps) {
         leaves: leavesData || [],
         dateRange: { start, end },
         includeDetailedTable,
-        isCustomRange: selectedRange === 'custom' // Flag for custom range
+        isCustomRange: selectedRange === 'custom',
+        periodType: periodTypeLabel
       }
       
       await generateProfessionalReport(reportData)
@@ -314,10 +435,11 @@ export function ReportsContent({ profile }: ReportsContentProps) {
   ]
 
   const reportFeatures = [
-    { icon: FileText, title: 'Student Information', description: 'Name, ID, photo, meal plan, subscription details', color: 'text-blue-600 dark:text-blue-400' },
-    { icon: BarChart3, title: 'Visual Charts', description: 'Monthly trends, meal distribution, attendance patterns', color: 'text-purple-600 dark:text-purple-400' },
-    { icon: PieChart, title: 'Statistics Summary', description: 'Total meals, lunch/dinner breakdown, attendance %', color: 'text-amber-600 dark:text-amber-400' },
-    { icon: DollarSign, title: 'Leave Extension', description: 'Leave summary and updated subscription dates', color: 'text-green-600 dark:text-green-400' },
+    { icon: FileText, title: 'Student Information', description: 'Name, ID, meal plan, subscription period, and report type', color: 'text-blue-600 dark:text-blue-400' },
+    { icon: BarChart3, title: 'Visual Analytics', description: '4 interactive charts with data labels showing meal trends', color: 'text-purple-600 dark:text-purple-400' },
+    { icon: PieChart, title: 'Statistics Dashboard', description: 'Total meals, taken, skipped, and approved leave (days)', color: 'text-amber-600 dark:text-amber-400' },
+    { icon: DollarSign, title: 'Leave Extension Summary', description: 'Approved leave days and updated mess period dates', color: 'text-green-600 dark:text-green-400' },
+    { icon: Calendar, title: 'Detailed Meal Table', description: 'Optional day-by-day meal record with color-coded status', color: 'text-red-600 dark:text-red-400' },
   ]
 
   return (
@@ -338,8 +460,8 @@ export function ReportsContent({ profile }: ReportsContentProps) {
 
       {generateSuccess && <SuccessMessage message="Report downloaded successfully!" />}
       {generateError && <ErrorMessage error={generateError} onRetry={handleGenerateReport} />}
-      {generateTestSuccess && <SuccessMessage message="Test report with dummy data downloaded successfully!" />}
-      {generateTestError && <ErrorMessage error={generateTestError} onRetry={handleGenerateTestReport} />}
+      {excelSuccess && <SuccessMessage message="Excel file downloaded successfully!" />}
+      {excelError && <ErrorMessage error={excelError} onRetry={handleDownloadExcel} />}
 
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-border shadow-xl overflow-hidden">
         <div className="p-6 border-b border-border bg-gradient-to-r from-accent/50 to-transparent">
@@ -455,13 +577,13 @@ export function ReportsContent({ profile }: ReportsContentProps) {
             </div>
             <div>
               <h3 className="text-lg font-bold">What&apos;s Included in Your Report</h3>
-              <p className="text-xs text-muted-foreground">Professional 2-page PDF with comprehensive analytics</p>
+              <p className="text-xs text-muted-foreground">Professional multi-page PDF with comprehensive analytics and insights</p>
             </div>
           </div>
         </div>
         
         <div className="p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {reportFeatures.map((feature, index) => {
               const Icon = feature.icon
               return (
@@ -499,13 +621,13 @@ export function ReportsContent({ profile }: ReportsContentProps) {
               {isGenerating ? (<><div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin mr-3" />Generating Report...</>) : (<><Download className="w-5 h-5 mr-3" />Download PDF Report</>)}
             </Button>
             
-            <Button onClick={handleGenerateTestReport} disabled={isGeneratingTest} variant="outline" className="w-full py-6 text-lg font-bold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 border-2 border-amber-500 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20">
-              {isGeneratingTest ? (<><div className="w-5 h-5 border-3 border-amber-600 border-t-transparent rounded-full animate-spin mr-3" />Generating Test...</>) : (<><FileText className="w-5 h-5 mr-3" />Test with Dummy Data</>)}
+            <Button onClick={handleDownloadExcel} disabled={isDownloadingExcel || recordCount === 0 || (selectedRange === 'custom' && (!customStartDate || !customEndDate || new Date(customStartDate) > new Date(customEndDate)))} variant="outline" className="w-full py-6 text-lg font-bold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 disabled:hover:scale-100 border-2 border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20">
+              {isDownloadingExcel ? (<><div className="w-5 h-5 border-3 border-green-600 border-t-transparent rounded-full animate-spin mr-3" />Downloading Excel...</>) : (<><FileText className="w-5 h-5 mr-3" />Download Attendance Data (Excel)</>)}
             </Button>
           </div>
           {recordCount === 0 && (
             <p className="text-center text-sm text-muted-foreground mt-3">
-              No attendance data available for the selected period. Use the test button to see a sample report.
+              No attendance data available for the selected period.
             </p>
           )}
         </div>

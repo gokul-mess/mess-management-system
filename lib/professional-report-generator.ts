@@ -40,6 +40,7 @@ interface ReportData {
   }
   includeDetailedTable: boolean
   isCustomRange?: boolean
+  periodType?: string // e.g., "Current Mess Month", "Previous Mess Month", etc.
 }
 
 // Brand colors matching website theme
@@ -348,16 +349,9 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   // Modern Gradient Header with Pattern
   const headerHeight = 50
   
-  // Main gradient background
-  // const gradient = doc.internal.pageSize.getWidth()
-  doc.setFillColor(30, 100, 45) // Dark green
+  // Single light green background (no partition)
+  doc.setFillColor(46, 125, 50) // Light green only
   doc.rect(0, 0, pageWidth, headerHeight, 'F')
-  
-  // Overlay gradient effect (lighter green)
-  doc.setFillColor(46, 125, 50)
-  doc.setGState(doc.GState({ opacity: 0.8 }))
-  doc.rect(0, 0, pageWidth, headerHeight * 0.6, 'F')
-  doc.setGState(doc.GState({ opacity: 1 }))
   
   // Decorative circles pattern in background
   doc.setFillColor(255, 255, 255)
@@ -547,7 +541,8 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   doc.setFontSize(9)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(100, 100, 100)
-  doc.text('REPORT PERIOD', pageWidth / 2 + 5, yPos + 8)
+  const periodLabel = data.periodType ? `REPORT PERIOD (${data.periodType})` : 'REPORT PERIOD'
+  doc.text(periodLabel, pageWidth / 2 + 5, yPos + 8)
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
   doc.setTextColor(33, 33, 33)
@@ -595,8 +590,13 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
     
     doc.setFillColor(255, 255, 255)
     doc.setGState(doc.GState({ opacity: 0.2 }))
-    doc.roundedRect(x, yPos, cardWidth, cardHeight * 0.35, 3, 3, 'F')
-    doc.rect(x, yPos + cardHeight * 0.3, cardWidth, cardHeight * 0.05, 'F')
+    doc.roundedRect(x, yPos, cardWidth, cardHeight * 0.655, 3, 3, 'F')
+    doc.setGState(doc.GState({ opacity: 1 }))
+    
+    // Decorative line just above the label
+    doc.setFillColor(255, 255, 255)
+    doc.setGState(doc.GState({ opacity: 0.3 }))
+    doc.rect(x + 3, yPos + 21, cardWidth - 6, 0.5, 'F')
     doc.setGState(doc.GState({ opacity: 1 }))
     
     doc.setFontSize(24)
