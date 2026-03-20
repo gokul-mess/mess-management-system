@@ -15,12 +15,15 @@ import {
   Trash2,
   Calendar,
   TrendingUp,
-  X
+  X,
+  FileText
 } from 'lucide-react'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
 import { validateRequired, validateNumberRange, parseError, ErrorResult } from '@/lib/error-handler'
 import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 import { LoadingState } from '@/components/ui/loading-state'
+import { generateProfessionalReport } from '@/lib/professional-report-generator'
+import { generateAttendanceExcel } from '@/lib/excel-generator'
 
 interface Student {
   id: string
@@ -74,6 +77,20 @@ export function StudentsList() {
     execute: executeEdit,
     clearMessages: clearEditMessages
   } = useAsyncOperation('Edit Student')
+  
+  // Report generation states
+  const [reportPeriod, setReportPeriod] = useState<'this_month' | 'last_month' | 'last_3_months' | 'all_time'>('this_month')
+  const [exportFormat, setExportFormat] = useState<'pdf' | 'excel'>('pdf')
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
+  const [reportSuccess, setReportSuccess] = useState(false)
+  
+  // Mess period state
+  const [messPeriod, setMessPeriod] = useState<{
+    start_date: string
+    end_date: string
+    original_end_date: string
+  } | null>(null)
   
   // Permission form state
   const [permissionForm, setPermissionForm] = useState({
@@ -131,7 +148,7 @@ export function StudentsList() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const openStudentDetail = (student: Student) => {
+  const openStudentDetail = async (student: Student) => {
     setSelectedStudent(student)
     // Load current photo permission into form
     setPermissionForm({
@@ -150,6 +167,22 @@ export function StudentsList() {
     clearPermissionMessages()
     clearEditMessages()
     setIsEditingStudent(false)
+    
+    // Fetch active mess period for the student
+    try {
+      const { data: activePeriod } = await supabase
+        .from('mess_periods')
+        .select('start_date, end_date, original_end_date')
+        .eq('user_id', student.id)
+        .eq('is_active', true)
+        .maybeSingle()
+      
+      setMessPeriod(activePeriod)
+    } catch (err) {
+      console.error('Error fetching mess period:', err)
+      setMessPeriod(null)
+    }
+    
     setShowDetailModal(true)
   }
 
@@ -243,6 +276,229 @@ export function StudentsList() {
         setSelectedStudent(updatedStudent)
       }
     })
+  }
+
+  const handleGenerateReport = async () => {
+    if (!selectedStudent) return
+    
+    setIsGeneratingReport(true)
+    setReportError(null)
+    setReportSuccess(false)
+    
+    try {
+      const supabase = createClient()
+      
+      // Get date range based on selected period
+      const getDateRange = async (): Promise<{ start: string; end: string }> => {
+        const today = new Date()
+        const end = today.toISOString().split('T')[0]
+        
+        switch (reportPeriod) {
+          case 'this_month': {
+            const { data: activePeriod } = await supabase
+              .from('mess_periods')
+              .select('start_date, end_date')
+              .eq('user_id', selectedStudent.id)
+              .eq('is_active', true)
+              .maybeSingle()
+            
+            if (activePeriod) {
+              return {
+                start: new Date(activePeriod.start_date).toISOString().split('T')[0],
+                end: new Date(activePeriod.end_date).toISOString().split('T')[0]
+              }
+            }
+            const start = new Date(today.getFullYear(), today.getMonth(), 1)
+            return { start: start.toISOString().split('T')[0], end }
+          }
+          case 'last_month': {
+            const { data: previousPeriod } = await supabase
+              .from('mess_periods')
+              .select('start_date, end_date')
+              .eq('user_id', selectedStudent.id)
+              .eq('is_active', false)
+              .order('end_date', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            
+            if (previousPeriod) {
+              return {
+                start: new Date(previousPeriod.start_date).toISOString().split('T')[0],
+                end: new Date(previousPeriod.end_date).toISOString().split('T')[0]
+              }
+            }
+            const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+            const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
+            return {
+              start: lastMonth.toISOString().split('T')[0],
+              end: lastMonthEnd.toISOString().split('T')[0]
+            }
+          }
+          case 'last_3_months': {
+            const { data: periods } = await supabase
+              .from('mess_periods')
+              .select('start_date, end_date')
+              .eq('user_id', selectedStudent.id)
+              .order('start_date', { ascending: false })
+              .limit(3)
+            
+            if (periods && periods.length > 0) {
+              const oldestPeriod = periods[periods.length - 1]
+              return {
+                start: new Date(oldestPeriod.start_date).toISOString().split('T')[0],
+                end
+              }
+            }
+            const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate())
+            return { start: threeMonthsAgo.toISOString().split('T')[0], end }
+          }
+          case 'all_time': {
+            const { data: earliestPeriod } = await supabase
+              .from('mess_periods')
+              .select('start_date')
+              .eq('user_id', selectedStudent.id)
+              .order('start_date', { ascending: true })
+              .limit(1)
+              .maybeSingle()
+            
+            if (earliestPeriod) {
+              return {
+                start: new Date(earliestPeriod.start_date).toISOString().split('T')[0],
+                end
+              }
+            }
+            const start = selectedStudent.created_at 
+              ? new Date(selectedStudent.created_at).toISOString().split('T')[0]
+              : '2024-01-01'
+            return { start, end }
+          }
+        }
+      }
+      
+      const { start, end } = await getDateRange()
+      
+      // Get period type label
+      let periodTypeLabel = ''
+      switch (reportPeriod) {
+        case 'this_month':
+          periodTypeLabel = 'Current Mess Month'
+          break
+        case 'last_month':
+          periodTypeLabel = 'Previous Mess Month'
+          break
+        case 'last_3_months':
+          periodTypeLabel = 'Last 3 Mess Months'
+          break
+        case 'all_time':
+          periodTypeLabel = 'All Time'
+          break
+      }
+      
+      // Fetch student data
+      const { data: studentData, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', selectedStudent.id)
+        .single()
+      
+      if (profileError) throw new Error('Failed to load student data')
+      
+      // Fetch mess period
+      const { data: messPeriodData } = await supabase
+        .from('mess_periods')
+        .select('*')
+        .eq('user_id', selectedStudent.id)
+        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      
+      // Fetch logs
+      const { data: logsData, error: logsError } = await supabase
+        .from('daily_logs')
+        .select('*')
+        .eq('user_id', selectedStudent.id)
+        .gte('date', start)
+        .lte('date', end)
+        .order('date', { ascending: true })
+      
+      if (logsError) throw new Error('Failed to load attendance data')
+      
+      if (!logsData || logsData.length === 0) {
+        throw new Error('No attendance data found for the selected period')
+      }
+      
+      // Fetch leaves
+      const { data: leavesData } = await supabase
+        .from('leaves')
+        .select('*')
+        .eq('user_id', selectedStudent.id)
+        .eq('is_approved', true)
+        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
+      
+      if (exportFormat === 'pdf') {
+        const reportData = {
+          student: {
+            id: studentData.id,
+            full_name: studentData.full_name || 'Student',
+            unique_short_id: studentData.unique_short_id || 0,
+            photo_url: studentData.photo_url,
+            meal_plan: messPeriodData?.meal_plan || 'DL',
+          },
+          messPeriod: messPeriodData ? {
+            start_date: messPeriodData.start_date,
+            end_date: messPeriodData.end_date,
+            original_end_date: messPeriodData.original_end_date,
+          } : null,
+          logs: logsData.map(log => ({
+            log_id: log.id,
+            date: log.date,
+            meal_type: log.meal_type,
+            status: log.status || 'VERIFIED',
+            created_at: log.created_at,
+          })),
+          leaves: leavesData || [],
+          dateRange: { start, end },
+          includeDetailedTable: true,
+          isCustomRange: false,
+          periodType: periodTypeLabel
+        }
+        
+        await generateProfessionalReport(reportData)
+      } else {
+        const excelData = {
+          student: {
+            full_name: studentData.full_name || 'Student',
+            unique_short_id: studentData.unique_short_id || 0,
+            meal_plan: studentData.meal_plan,
+          },
+          logs: logsData.map(log => ({
+            date: log.date,
+            meal_type: log.meal_type,
+            status: log.status || 'VERIFIED',
+            created_at: log.created_at,
+          })),
+          leaves: leavesData || [],
+          messPeriod: messPeriodData ? {
+            start_date: messPeriodData.start_date,
+            end_date: messPeriodData.end_date,
+            original_end_date: messPeriodData.original_end_date,
+          } : null,
+          dateRange: { start, end },
+          periodType: periodTypeLabel,
+          includeDetailedTable: true
+        }
+        
+        generateAttendanceExcel(excelData)
+      }
+      
+      setReportSuccess(true)
+      setTimeout(() => setReportSuccess(false), 3000)
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'Failed to generate report')
+    } finally {
+      setIsGeneratingReport(false)
+    }
   }
 
   const handleExport = () => {
@@ -991,21 +1247,35 @@ export function StudentsList() {
                       )}
                     </div>
 
-                    {/* Subscription End (Non-editable) */}
+                    {/* Subscription Start (from mess_periods) */}
                     <div className="bg-muted/50 rounded-lg p-3">
-                      <p className="text-xs font-medium text-muted-foreground mb-1">Subscription End</p>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Subscription Start</p>
                       <p className="font-semibold text-sm">
-                        {selectedStudent.subscription_end_date 
-                          ? new Date(selectedStudent.subscription_end_date).toLocaleDateString('en-IN', {
+                        {messPeriod?.start_date 
+                          ? new Date(messPeriod.start_date).toLocaleDateString('en-IN', {
                               day: 'numeric',
                               month: 'short',
                               year: 'numeric'
                             })
                           : 'Not set'}
                       </p>
-                      {selectedStudent.subscription_end_date && (
+                    </div>
+
+                    {/* Subscription End (from mess_periods) */}
+                    <div className="bg-muted/50 rounded-lg p-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Subscription End</p>
+                      <p className="font-semibold text-sm">
+                        {messPeriod?.end_date 
+                          ? new Date(messPeriod.end_date).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric'
+                            })
+                          : 'Not set'}
+                      </p>
+                      {messPeriod?.end_date && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          {new Date(selectedStudent.subscription_end_date) < new Date() 
+                          {new Date(messPeriod.end_date) < new Date() 
                             ? '⚠️ Subscription expired' 
                             : '✓ Active subscription'}
                         </p>
@@ -1153,6 +1423,77 @@ export function StudentsList() {
                   >
                     {permissionLoading ? 'Saving...' : 'Save Photo Permission'}
                   </Button>
+
+                  {/* Report Generation Section */}
+                  <div className="mt-6 border-t border-border pt-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <FileText className="w-5 h-5 text-primary" />
+                      <h4 className="text-lg font-semibold">Generate Student Report</h4>
+                    </div>
+
+                    <div className="bg-muted/30 rounded-lg p-4 border border-border space-y-4">
+                      <div className="grid grid-cols-1 gap-4">
+                        {/* Report Period Selection */}
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Report Period</label>
+                          <select
+                            value={reportPeriod}
+                            onChange={(e) => setReportPeriod(e.target.value as typeof reportPeriod)}
+                            className="w-full px-3 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                          >
+                            <option value="this_month">Current Mess Month</option>
+                            <option value="last_month">Previous Mess Month</option>
+                            <option value="last_3_months">Last 3 Mess Months</option>
+                            <option value="all_time">All Time</option>
+                          </select>
+                        </div>
+
+                        {/* Export Format Selection */}
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Export Format</label>
+                          <select
+                            value={exportFormat}
+                            onChange={(e) => setExportFormat(e.target.value as typeof exportFormat)}
+                            className="w-full px-3 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                          >
+                            <option value="pdf">PDF Report</option>
+                            <option value="excel">Excel Spreadsheet</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Download Button */}
+                      <Button
+                        onClick={handleGenerateReport}
+                        disabled={isGeneratingReport}
+                        className="w-full"
+                      >
+                        {isGeneratingReport ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                            Generating {exportFormat === 'pdf' ? 'PDF' : 'Excel'}...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-4 h-4 mr-2" />
+                            Download {exportFormat === 'pdf' ? 'PDF' : 'Excel'} Report
+                          </>
+                        )}
+                      </Button>
+
+                      {reportError && (
+                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                          <p className="text-sm text-red-700 dark:text-red-400">{reportError}</p>
+                        </div>
+                      )}
+
+                      {reportSuccess && (
+                        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                          <p className="text-sm text-green-700 dark:text-green-400">Report generated successfully!</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

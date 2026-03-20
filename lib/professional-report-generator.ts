@@ -436,9 +436,9 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   doc.setDrawColor(46, 125, 50)
   doc.setLineWidth(0.5)
   // Shield body
-  doc.roundedRect(shieldX - 3.5, shieldY - 5, 7, 8, 1, 1, 'FD')
+  doc.roundedRect(shieldX - 3.5, shieldY - 5, 8, 8, 1, 1, 'FD')
   // Shield bottom point
-  doc.triangle(shieldX - 3.5, shieldY + 3, shieldX + 3.5, shieldY + 3, shieldX, shieldY + 7, 'F')
+  doc.triangle(shieldX - 3.5, shieldY + 3, shieldX + 4.5, shieldY + 3, shieldX, shieldY + 7, 'F')
   
   // Checkmark in shield - white
   doc.setDrawColor(255, 255, 255)

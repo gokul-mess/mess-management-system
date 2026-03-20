@@ -284,7 +284,7 @@ export function ReportsContent({ profile }: ReportsContentProps) {
         student: {
           full_name: studentData.full_name || 'Student',
           unique_short_id: studentData.unique_short_id || 0,
-          meal_plan: studentData.meal_plan,
+          meal_plan: messPeriodData?.meal_plan || 'DL',
         },
         logs: logsData.map(log => ({
           date: log.date,
@@ -399,7 +399,7 @@ export function ReportsContent({ profile }: ReportsContentProps) {
           full_name: studentData.full_name || 'Student',
           unique_short_id: studentData.unique_short_id || 0,
           photo_url: studentData.photo_url,
-          meal_plan: studentData.meal_plan,
+          meal_plan: messPeriodData?.meal_plan || 'DL',
         },
         messPeriod: messPeriodData ? {
           start_date: messPeriodData.start_date,

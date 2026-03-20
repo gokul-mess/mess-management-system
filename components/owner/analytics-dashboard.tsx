@@ -33,6 +33,8 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts'
+import { generateOwnerAnalyticsReport } from '@/lib/owner-analytics-report-generator'
+import { ComprehensiveAnalyticsSections } from './comprehensive-analytics-sections'
 
 interface AnalyticsData {
   todayMeals: number
@@ -53,8 +55,59 @@ interface ChartData {
   revenue: number
 }
 
+interface StudentData {
+  name: string
+  id: number
+  meals: number
+  mealPlan: string
+  attendanceRate?: number
+}
+
+interface LeaveData {
+  studentName: string
+  studentId: number
+  leaveDays: number
+}
+
+interface UserRecord {
+  full_name: string | null
+  unique_short_id: number | null
+}
+
+interface LogWithUser {
+  user_id: string
+  date: string
+  meal_type: string
+  users: UserRecord
+}
+
+interface LeaveWithUser {
+  user_id: string
+  start_date: string
+  end_date: string
+  is_approved: boolean
+  users: UserRecord
+}
+
+interface ComprehensiveData {
+  topStudents: StudentData[]
+  perfectAttendance: StudentData[]
+  lowAttendance: StudentData[]
+  mealPlanDistribution: { DL: number; L: number; D: number }
+  leaveAnalysis: {
+    totalLeaveDays: number
+    studentsOnLeave: number
+    topLeaveStudents: LeaveData[]
+  }
+  peakDay: { date: string; meals: number }
+  lowDay: { date: string; meals: number }
+  totalStudents: number
+  attendanceRate: number
+}
+
 export function AnalyticsDashboard() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
+  const [comprehensiveData, setComprehensiveData] = useState<ComprehensiveData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [fetchError, setFetchError] = useState<{ message: string } | null>(null)
   const [timeRange, setTimeRange] = useState<'7days' | '15days' | '30days' | '90days' | 'custom'>('7days')
@@ -137,14 +190,19 @@ export function AnalyticsDashboard() {
 
       if (todayError) throw todayError
 
-      // Fetch active students
-      const { data: students, error: studentsError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('role', 'STUDENT')
-        .eq('is_active', true)
+      // Fetch mess periods to calculate active students
+      const { data: messPeriods } = await supabase
+        .from('mess_periods')
+        .select('user_id, meal_plan, start_date, end_date')
+        .lte('start_date', dateRange.end)
+        .gte('end_date', dateRange.start)
 
-      if (studentsError) throw studentsError
+      // Calculate active students - only those with mess periods overlapping the report period
+      const activeStudentsSet = new Set<string>()
+      messPeriods?.forEach(period => {
+        activeStudentsSet.add(period.user_id)
+      })
+      const activeStudentsCount = activeStudentsSet.size
 
       // Calculate meal type distribution
       const lunchCount = todayLogs?.filter(l => l.meal_type === 'LUNCH').length || 0
@@ -160,7 +218,7 @@ export function AnalyticsDashboard() {
         todayRevenue: (todayLogs?.length || 0) * 50,
         weeklyRevenue: totalRevenue,
         monthlyRevenue: totalRevenue,
-        activeStudents: students?.length || 0,
+        activeStudents: activeStudentsCount,
         averageMealsPerDay: Math.round(totalMeals / dateRange.days),
         peakHours: { lunch: 12, dinner: 19 },
         mealTypeDistribution: { lunch: lunchCount, dinner: dinnerCount }
@@ -208,6 +266,228 @@ export function AnalyticsDashboard() {
         setWeeklyChartData(weeklyData)
         setMonthlyChartData(weeklyData)
       }
+
+      // Fetch comprehensive analytics data
+      const { data: allLogs } = await supabase
+        .from('daily_logs')
+        .select('*, users(full_name, unique_short_id)')
+        .gte('date', dateRange.start)
+        .lte('date', dateRange.end)
+
+      const { data: allStudents, count: totalStudentsCount } = await supabase
+        .from('users')
+        .select('*', { count: 'exact' })
+        .eq('role', 'STUDENT')
+
+      // Create a map of user_id to meal_plan (reuse messPeriods from above)
+      const userMealPlanMap = new Map<string, string>()
+      messPeriods?.forEach(period => {
+        // Use the most recent period if multiple overlap
+        if (!userMealPlanMap.has(period.user_id)) {
+          userMealPlanMap.set(period.user_id, period.meal_plan || 'DL')
+        }
+      })
+
+      const { data: leaves } = await supabase
+        .from('leaves')
+        .select('*, users(full_name, unique_short_id)')
+        .eq('is_approved', true)
+        .or(`start_date.lte.${dateRange.end},end_date.gte.${dateRange.start}`)
+
+      // Process student meal data (defaulting all to DL meal plan)
+      const studentMealMap = new Map<string, { name: string; id: number; meals: number; mealPlan: string }>()
+      
+      allLogs?.forEach((log) => {
+        const user = (log as LogWithUser).users
+        if (user) {
+          const existing = studentMealMap.get(log.user_id)
+          const mealPlan = userMealPlanMap.get(log.user_id) || 'DL'
+          if (existing) {
+            existing.meals++
+          } else {
+            studentMealMap.set(log.user_id, {
+              name: user.full_name || 'Unknown',
+              id: user.unique_short_id || 0,
+              meals: 1,
+              mealPlan
+            })
+          }
+        }
+      })
+
+      // Get top students
+      const topStudents = Array.from(studentMealMap.values())
+        .sort((a, b) => b.meals - a.meals)
+        .slice(0, 10)
+
+      // Calculate daily trend for peak/low days
+      const dailyMap = new Map<string, number>()
+      allLogs?.forEach((log) => {
+        const dateKey = log.date
+        dailyMap.set(dateKey, (dailyMap.get(dateKey) || 0) + 1)
+      })
+
+      const dailyEntries = Array.from(dailyMap.entries()).map(([date, meals]) => ({ date, meals }))
+      const peakDay = dailyEntries.reduce((max, day) => day.meals > max.meals ? day : max, dailyEntries[0] || { date: dateRange.start, meals: 0 })
+      const lowDay = dailyEntries.reduce((min, day) => day.meals < min.meals ? day : min, dailyEntries[0] || { date: dateRange.start, meals: 0 })
+
+      // Calculate meal plan distribution from mess_periods
+      // Option 3: Primary/Majority Rule - count student under meal plan they had for most days
+      const mealPlanDist = { DL: 0, L: 0, D: 0 }
+      
+      // For each student, calculate which meal plan they had for most days in the report period
+      const mealPlanReportStartDate = new Date(dateRange.start)
+      const mealPlanReportEndDate = new Date(dateRange.end)
+      
+      // Map to track days per meal plan per student
+      const studentMealPlanDays = new Map<string, { DL: number; L: number; D: number; name: string }>()
+      
+      // Initialize all students with 0 days for each plan
+      allStudents?.forEach((student) => {
+        studentMealPlanDays.set(student.id, { DL: 0, L: 0, D: 0, name: student.full_name || 'Unknown' })
+      })
+      
+      // Calculate days for each meal plan per student
+      messPeriods?.forEach((period) => {
+        const periodStartDate = new Date(period.start_date)
+        const periodEndDate = new Date(period.end_date)
+        
+        // Only process if period overlaps with report period
+        if (periodEndDate >= mealPlanReportStartDate && periodStartDate <= mealPlanReportEndDate) {
+          // Calculate overlap days
+          const overlapStart = periodStartDate > mealPlanReportStartDate ? periodStartDate : mealPlanReportStartDate
+          const overlapEnd = periodEndDate < mealPlanReportEndDate ? periodEndDate : mealPlanReportEndDate
+          const days = Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+          
+          if (days > 0) {
+            const studentData = studentMealPlanDays.get(period.user_id)
+            if (studentData) {
+              const plan = period.meal_plan || 'DL'
+              if (plan === 'DL') studentData.DL += days
+              else if (plan === 'L') studentData.L += days
+              else if (plan === 'D') studentData.D += days
+            }
+          }
+        }
+      })
+      
+      // Count each student under their primary (majority) meal plan
+      studentMealPlanDays.forEach((planDays) => {
+        const totalDays = planDays.DL + planDays.L + planDays.D
+        
+        if (totalDays === 0) {
+          // Student has no mess period in report range, default to DL
+          mealPlanDist.DL++
+        } else {
+          // Find which plan has most days
+          if (planDays.DL >= planDays.L && planDays.DL >= planDays.D) {
+            mealPlanDist.DL++
+          } else if (planDays.L >= planDays.D) {
+            mealPlanDist.L++
+          } else {
+            mealPlanDist.D++
+          }
+        }
+      })
+
+      // Process leave data - only count days within report period and exclude days with meal consumption
+      const leaveMap = new Map<string, { name: string; id: number; days: number }>()
+      const leaveReportStartDate = new Date(dateRange.start)
+      const leaveReportEndDate = new Date(dateRange.end)
+      
+      // Create a map of dates when each student consumed meals
+      const studentMealDates = new Map<string, Set<string>>()
+      allLogs?.forEach((log) => {
+        if (!studentMealDates.has(log.user_id)) {
+          studentMealDates.set(log.user_id, new Set())
+        }
+        studentMealDates.get(log.user_id)?.add(log.date)
+      })
+      
+      leaves?.forEach((leave) => {
+        const user = (leave as LeaveWithUser).users
+        if (user) {
+          const leaveStartDate = new Date(leave.start_date)
+          const leaveEndDate = new Date(leave.end_date)
+          
+          // Only process if leave overlaps with report period
+          if (leaveEndDate >= leaveReportStartDate && leaveStartDate <= leaveReportEndDate) {
+            // Calculate overlap: use the later start date and earlier end date
+            const overlapStart = leaveStartDate > leaveReportStartDate ? leaveStartDate : leaveReportStartDate
+            const overlapEnd = leaveEndDate < leaveReportEndDate ? leaveEndDate : leaveReportEndDate
+            
+            // Count each day in the leave period, excluding days with meal consumption
+            let leaveDaysCount = 0
+            const currentDate = new Date(overlapStart)
+            const studentMealDatesSet = studentMealDates.get(leave.user_id)
+            
+            while (currentDate <= overlapEnd) {
+              const dateStr = currentDate.toISOString().split('T')[0]
+              // Only count as leave day if student did NOT consume a meal on this day
+              if (!studentMealDatesSet || !studentMealDatesSet.has(dateStr)) {
+                leaveDaysCount++
+              }
+              currentDate.setDate(currentDate.getDate() + 1)
+            }
+            
+            // Only add if there are actual leave days
+            if (leaveDaysCount > 0) {
+              const existing = leaveMap.get(leave.user_id)
+              if (existing) {
+                existing.days += leaveDaysCount
+              } else {
+                leaveMap.set(leave.user_id, {
+                  name: user.full_name || 'Unknown',
+                  id: user.unique_short_id || 0,
+                  days: leaveDaysCount
+                })
+              }
+            }
+          }
+        }
+      })
+
+      const topLeaveStudents = Array.from(leaveMap.values())
+        .sort((a, b) => b.days - a.days)
+        .slice(0, 5)
+        .map(s => ({ studentName: s.name, studentId: s.id, leaveDays: s.days }))
+
+      const totalLeaveDays = Array.from(leaveMap.values()).reduce((sum, s) => sum + s.days, 0)
+
+      // Calculate perfect and low attendance
+      const daysInPeriod = dailyEntries.length
+      const perfectAttendance = Array.from(studentMealMap.values()).filter(s => {
+        const expected = s.mealPlan === 'DL' ? daysInPeriod * 2 : daysInPeriod
+        return s.meals >= expected
+      })
+
+      const lowAttendance = Array.from(studentMealMap.values()).filter(s => {
+        const expected = s.mealPlan === 'DL' ? daysInPeriod * 2 : daysInPeriod
+        const rate = (s.meals / expected) * 100
+        return rate < 50
+      }).map(s => {
+        const expected = s.mealPlan === 'DL' ? daysInPeriod * 2 : daysInPeriod
+        return { ...s, attendanceRate: (s.meals / expected) * 100 }
+      })
+
+      // Calculate participation rate: (active students / total students) * 100
+      const participationRate = totalStudentsCount && activeStudentsCount ? (activeStudentsCount / totalStudentsCount) * 100 : 0
+
+      setComprehensiveData({
+        topStudents,
+        perfectAttendance,
+        lowAttendance,
+        mealPlanDistribution: mealPlanDist,
+        leaveAnalysis: {
+          totalLeaveDays,
+          studentsOnLeave: leaveMap.size,
+          topLeaveStudents
+        },
+        peakDay,
+        lowDay,
+        totalStudents: totalStudentsCount || 0,
+        attendanceRate: participationRate
+      })
 
     } catch (error) {
       console.error('Error fetching analytics:', error)
@@ -266,32 +546,327 @@ export function AnalyticsDashboard() {
     clearMessages()
     
     await executeExport(async () => {
-      const reportData = [
-        ['Gokul Mess - Analytics Report'],
-        [`Generated: ${new Date().toLocaleString('en-IN')}`],
-        [''],
-        ['Metric', 'Value'],
-        ['Today Meals', analytics?.todayMeals || 0],
-        ['Weekly Meals', analytics?.weeklyMeals || 0],
-        ['Monthly Meals', analytics?.monthlyMeals || 0],
-        ['Today Revenue', `₹${analytics?.todayRevenue || 0}`],
-        ['Weekly Revenue', `₹${analytics?.weeklyRevenue || 0}`],
-        ['Monthly Revenue', `₹${analytics?.monthlyRevenue || 0}`],
-        ['Active Students', analytics?.activeStudents || 0],
-        ['Average Meals/Day', analytics?.averageMealsPerDay || 0],
-        [''],
-        ['Meal Distribution'],
-        ['Lunch', analytics?.mealTypeDistribution.lunch || 0],
-        ['Dinner', analytics?.mealTypeDistribution.dinner || 0]
-      ].map(row => Array.isArray(row) ? row.join(',') : row).join('\n')
+      if (!analytics) {
+        throw new Error('No analytics data available')
+      }
 
-      const blob = new Blob([reportData], { type: 'text/csv' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `analytics-report-${new Date().toISOString().split('T')[0]}.csv`
-      a.click()
-      window.URL.revokeObjectURL(url)
+      // Get period label
+      let periodLabel = ''
+      switch (timeRange) {
+        case '7days':
+          periodLabel = 'Last 7 Days'
+          break
+        case '15days':
+          periodLabel = 'Last 15 Days'
+          break
+        case '30days':
+          periodLabel = 'Last 30 Days'
+          break
+        case '90days':
+          periodLabel = 'Last 90 Days'
+          break
+        case 'custom':
+          periodLabel = 'Custom Range'
+          break
+      }
+
+      const { start, end } = getDateRange()
+
+      // Fetch all logs for the period
+      const { data: allLogs, error: logsError } = await supabase
+        .from('daily_logs')
+        .select('*, users(full_name, unique_short_id)')
+        .gte('date', start)
+        .lte('date', end)
+        .order('date', { ascending: true })
+
+      if (logsError) {
+        console.error('Error fetching logs:', logsError)
+        throw logsError
+      }
+
+      // Fetch all students with meal plans
+      const { data: allStudents, count: totalStudents, error: studentsError } = await supabase
+        .from('users')
+        .select('id, full_name, unique_short_id', { count: 'exact' })
+        .eq('role', 'STUDENT')
+
+      if (studentsError) {
+        console.error('Error fetching students:', studentsError)
+        throw studentsError
+      }
+
+      // Fetch mess periods to get meal plans
+      const { data: messPeriods, error: messPeriodsError } = await supabase
+        .from('mess_periods')
+        .select('user_id, meal_plan, start_date, end_date')
+        .lte('start_date', end)
+        .gte('end_date', start)
+
+      if (messPeriodsError) {
+        console.error('Error fetching mess periods:', messPeriodsError)
+        throw messPeriodsError
+      }
+
+      // Calculate active students - only those with mess periods overlapping the report period
+      const activeStudentsSet = new Set<string>()
+      messPeriods?.forEach(period => {
+        activeStudentsSet.add(period.user_id)
+      })
+      const activeStudentsCount = activeStudentsSet.size
+
+      // Create a map of user_id to meal_plan
+      const userMealPlanMap = new Map<string, string>()
+      messPeriods?.forEach(period => {
+        // Use the most recent period if multiple overlap
+        if (!userMealPlanMap.has(period.user_id)) {
+          userMealPlanMap.set(period.user_id, period.meal_plan || 'DL')
+        }
+      })
+
+      // Fetch leaves for the period
+      const { data: leaves } = await supabase
+        .from('leaves')
+        .select('*, users(full_name, unique_short_id)')
+        .eq('is_approved', true)
+        .or(`start_date.lte.${end},end_date.gte.${start}`)
+
+      // Process student meal data
+      const studentMealMap = new Map<string, { name: string; id: number; meals: number; mealPlan: string }>()
+      
+      allLogs?.forEach((log) => {
+        const user = (log as LogWithUser).users
+        if (user) {
+          const existing = studentMealMap.get(log.user_id)
+          const mealPlan = userMealPlanMap.get(log.user_id) || 'DL'
+          if (existing) {
+            existing.meals++
+          } else {
+            studentMealMap.set(log.user_id, {
+              name: user.full_name || 'Unknown',
+              id: user.unique_short_id || 0,
+              meals: 1,
+              mealPlan
+            })
+          }
+        }
+      })
+
+      // Get top students
+      const topStudents = Array.from(studentMealMap.values())
+        .sort((a, b) => b.meals - a.meals)
+        .slice(0, 10)
+
+      // Calculate daily trend
+      const dailyMap = new Map<string, { lunch: number; dinner: number }>()
+      allLogs?.forEach((log) => {
+        const dateKey = log.date
+        const existing = dailyMap.get(dateKey) || { lunch: 0, dinner: 0 }
+        if (log.meal_type === 'LUNCH') existing.lunch++
+        if (log.meal_type === 'DINNER') existing.dinner++
+        dailyMap.set(dateKey, existing)
+      })
+
+      const dailyTrend = Array.from(dailyMap.entries()).map(([date, data]) => ({
+        date,
+        meals: data.lunch + data.dinner,
+        lunch: data.lunch,
+        dinner: data.dinner,
+        revenue: (data.lunch + data.dinner) * 50
+      }))
+
+      // Find peak and low days
+      const peakDay = dailyTrend.reduce((max, day) => day.meals > max.meals ? day : max, dailyTrend[0] || { date: start, meals: 0 })
+      const lowDay = dailyTrend.reduce((min, day) => day.meals < min.meals ? day : min, dailyTrend[0] || { date: start, meals: 0 })
+
+      // Calculate meal plan distribution from mess_periods
+      // Option 3: Primary/Majority Rule - count student under meal plan they had for most days
+      const mealPlanDist = { DL: 0, L: 0, D: 0 }
+      
+      // For each student, calculate which meal plan they had for most days in the report period
+      const mealPlanReportStartDate = new Date(start)
+      const mealPlanReportEndDate = new Date(end)
+      
+      // Map to track days per meal plan per student
+      const studentMealPlanDays = new Map<string, { DL: number; L: number; D: number; name: string }>()
+      
+      // Initialize all students with 0 days for each plan
+      allStudents?.forEach((student) => {
+        studentMealPlanDays.set(student.id, { DL: 0, L: 0, D: 0, name: student.full_name || 'Unknown' })
+      })
+      
+      // Calculate days for each meal plan per student
+      messPeriods?.forEach((period) => {
+        const periodStartDate = new Date(period.start_date)
+        const periodEndDate = new Date(period.end_date)
+        
+        // Only process if period overlaps with report period
+        if (periodEndDate >= mealPlanReportStartDate && periodStartDate <= mealPlanReportEndDate) {
+          // Calculate overlap days
+          const overlapStart = periodStartDate > mealPlanReportStartDate ? periodStartDate : mealPlanReportStartDate
+          const overlapEnd = periodEndDate < mealPlanReportEndDate ? periodEndDate : mealPlanReportEndDate
+          const days = Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+          
+          if (days > 0) {
+            const studentData = studentMealPlanDays.get(period.user_id)
+            if (studentData) {
+              const plan = period.meal_plan || 'DL'
+              if (plan === 'DL') studentData.DL += days
+              else if (plan === 'L') studentData.L += days
+              else if (plan === 'D') studentData.D += days
+            }
+          }
+        }
+      })
+      
+      // Count each student under their primary (majority) meal plan
+      studentMealPlanDays.forEach((planDays) => {
+        const totalDays = planDays.DL + planDays.L + planDays.D
+        
+        if (totalDays === 0) {
+          // Student has no mess period in report range, default to DL
+          mealPlanDist.DL++
+        } else {
+          // Find which plan has most days
+          if (planDays.DL >= planDays.L && planDays.DL >= planDays.D) {
+            mealPlanDist.DL++
+          } else if (planDays.L >= planDays.D) {
+            mealPlanDist.L++
+          } else {
+            mealPlanDist.D++
+          }
+        }
+      })
+
+      // Process leave data - only count days within report period and exclude days with meal consumption
+      const leaveMap = new Map<string, { name: string; id: number; days: number }>()
+      const leaveReportStartDate = new Date(start)
+      const leaveReportEndDate = new Date(end)
+      
+      // Create a map of dates when each student consumed meals
+      const studentMealDates = new Map<string, Set<string>>()
+      allLogs?.forEach((log) => {
+        if (!studentMealDates.has(log.user_id)) {
+          studentMealDates.set(log.user_id, new Set())
+        }
+        studentMealDates.get(log.user_id)?.add(log.date)
+      })
+      
+      leaves?.forEach((leave) => {
+        const user = (leave as LeaveWithUser).users
+        if (user) {
+          const leaveStartDate = new Date(leave.start_date)
+          const leaveEndDate = new Date(leave.end_date)
+          
+          // Only process if leave overlaps with report period
+          if (leaveEndDate >= leaveReportStartDate && leaveStartDate <= leaveReportEndDate) {
+            // Calculate overlap: use the later start date and earlier end date
+            const overlapStart = leaveStartDate > leaveReportStartDate ? leaveStartDate : leaveReportStartDate
+            const overlapEnd = leaveEndDate < leaveReportEndDate ? leaveEndDate : leaveReportEndDate
+            
+            // Count each day in the leave period, excluding days with meal consumption
+            let leaveDaysCount = 0
+            const currentDate = new Date(overlapStart)
+            const studentMealDatesSet = studentMealDates.get(leave.user_id)
+            
+            while (currentDate <= overlapEnd) {
+              const dateStr = currentDate.toISOString().split('T')[0]
+              // Only count as leave day if student did NOT consume a meal on this day
+              if (!studentMealDatesSet || !studentMealDatesSet.has(dateStr)) {
+                leaveDaysCount++
+              }
+              currentDate.setDate(currentDate.getDate() + 1)
+            }
+            
+            // Only add if there are actual leave days
+            if (leaveDaysCount > 0) {
+              const existing = leaveMap.get(leave.user_id)
+              if (existing) {
+                existing.days += leaveDaysCount
+              } else {
+                leaveMap.set(leave.user_id, {
+                  name: user.full_name || 'Unknown',
+                  id: user.unique_short_id || 0,
+                  days: leaveDaysCount
+                })
+              }
+            }
+          }
+        }
+      })
+
+      const topLeaveStudents = Array.from(leaveMap.values())
+        .sort((a, b) => b.days - a.days)
+        .slice(0, 5)
+        .map(s => ({ studentName: s.name, studentId: s.id, leaveDays: s.days }))
+
+      const totalLeaveDays = Array.from(leaveMap.values()).reduce((sum, s) => sum + s.days, 0)
+
+      // Calculate perfect and low attendance
+      const daysInPeriod = dailyTrend.length
+      const perfectAttendance = Array.from(studentMealMap.values()).filter(s => {
+        const expected = s.mealPlan === 'DL' ? daysInPeriod * 2 : daysInPeriod
+        return s.meals >= expected
+      })
+
+      const lowAttendance = Array.from(studentMealMap.values()).filter(s => {
+        const expected = s.mealPlan === 'DL' ? daysInPeriod * 2 : daysInPeriod
+        return (s.meals / expected) < 0.5
+      })
+
+      // Calculate metrics
+      const totalMeals = allLogs?.length || 0
+      const totalRevenue = totalMeals * 50
+      // activeStudentsCount already calculated above from mess_periods
+      
+      // Calculate meal distribution from allLogs
+      const lunchCount = allLogs?.filter(l => l.meal_type === 'LUNCH').length || 0
+      const dinnerCount = allLogs?.filter(l => l.meal_type === 'DINNER').length || 0
+      const lunchPercentage = totalMeals > 0 ? (lunchCount / totalMeals) * 100 : 0
+      const dinnerPercentage = totalMeals > 0 ? (dinnerCount / totalMeals) * 100 : 0
+      const averageMealsPerDay = dailyTrend.length > 0 ? totalMeals / dailyTrend.length : 0
+
+      // Generate PDF report
+      await generateOwnerAnalyticsReport({
+        period: {
+          label: periodLabel,
+          start,
+          end
+        },
+        metrics: {
+          totalMeals,
+          totalRevenue,
+          activeStudents: activeStudentsCount,
+          totalStudents: totalStudents || 0,
+          averageMealsPerDay,
+          attendanceRate: activeStudentsCount > 0 && totalStudents ? (activeStudentsCount / totalStudents) * 100 : 0,
+          revenuePerMeal: 50
+        },
+        mealDistribution: {
+          lunch: lunchCount,
+          dinner: dinnerCount,
+          lunchPercentage,
+          dinnerPercentage
+        },
+        mealPlanDistribution: mealPlanDist,
+        dailyTrend,
+        topStudents,
+        lowAttendanceStudents: lowAttendance,
+        perfectAttendanceStudents: perfectAttendance,
+        leaveAnalysis: {
+          totalLeaveDays,
+          studentsOnLeave: leaveMap.size,
+          topLeaveStudents
+        },
+        peakDay: {
+          date: peakDay.date,
+          meals: peakDay.meals
+        },
+        lowDay: {
+          date: lowDay.date,
+          meals: lowDay.meals
+        }
+      })
     })
   }
 
@@ -1143,6 +1718,23 @@ export function AnalyticsDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Comprehensive Analytics Sections */}
+      {comprehensiveData && (
+        <ComprehensiveAnalyticsSections
+          topStudents={comprehensiveData.topStudents}
+          perfectAttendance={comprehensiveData.perfectAttendance}
+          lowAttendance={comprehensiveData.lowAttendance}
+          mealPlanDistribution={comprehensiveData.mealPlanDistribution}
+          leaveAnalysis={comprehensiveData.leaveAnalysis}
+          peakDay={comprehensiveData.peakDay}
+          lowDay={comprehensiveData.lowDay}
+          totalStudents={comprehensiveData.totalStudents}
+          activeStudents={analytics?.activeStudents || 0}
+          attendanceRate={comprehensiveData.attendanceRate}
+        />
+      )}
     </div>
   )
 }
+

@@ -19,7 +19,24 @@ export const profileQueryOptions = queryOptions({
       .single()
 
     if (error) throw error
-    return data as UserProfile
+
+    // Fetch current meal plan from mess_periods
+    const today = new Date().toISOString().split('T')[0]
+    const { data: messPeriod } = await supabase
+      .from('mess_periods')
+      .select('meal_plan')
+      .eq('user_id', user.id)
+      .lte('start_date', today)
+      .gte('end_date', today)
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .single()
+
+    // Add meal_plan to the profile data
+    return {
+      ...data,
+      meal_plan: messPeriod?.meal_plan || 'DL'
+    } as UserProfile
   },
 })
 
