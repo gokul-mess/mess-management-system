@@ -1,6 +1,7 @@
 import { useQuery, queryOptions } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { queryKeys } from '@/lib/query-keys'
+import { getUserMealPlan } from '@/lib/mess-period-utils'
 import type { UserProfile } from '@/types'
 
 export const profileQueryOptions = queryOptions({
@@ -20,22 +21,13 @@ export const profileQueryOptions = queryOptions({
 
     if (error) throw error
 
-    // Fetch current meal plan from mess_periods
-    const today = new Date().toISOString().split('T')[0]
-    const { data: messPeriod } = await supabase
-      .from('mess_periods')
-      .select('meal_plan')
-      .eq('user_id', user.id)
-      .lte('start_date', today)
-      .gte('end_date', today)
-      .order('start_date', { ascending: false })
-      .limit(1)
-      .single()
+    // Fetch current meal plan from mess_periods using shared utility
+    const mealPlan = await getUserMealPlan(supabase, user.id)
 
     // Add meal_plan to the profile data
     return {
       ...data,
-      meal_plan: messPeriod?.meal_plan || 'DL'
+      meal_plan: mealPlan
     } as UserProfile
   },
 })

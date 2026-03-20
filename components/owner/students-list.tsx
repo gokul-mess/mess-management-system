@@ -24,6 +24,12 @@ import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 import { LoadingState } from '@/components/ui/loading-state'
 import { generateProfessionalReport } from '@/lib/professional-report-generator'
 import { generateAttendanceExcel } from '@/lib/excel-generator'
+import { 
+  getMessPeriodDateRange, 
+  getPeriodTypeLabel,
+  type DateRangeType 
+} from '@/lib/mess-period-utils'
+import { fetchReportData, transformForPDFReport, transformForExcelReport } from '@/lib/report-data-fetcher'
 
 interface Student {
   id: string
@@ -79,8 +85,9 @@ export function StudentsList() {
   } = useAsyncOperation('Edit Student')
   
   // Report generation states
-  const [reportPeriod, setReportPeriod] = useState<'this_month' | 'last_month' | 'last_3_months' | 'all_time'>('this_month')
+  const [reportPeriod, setReportPeriod] = useState<DateRangeType>('this_month')
   const [exportFormat, setExportFormat] = useState<'pdf' | 'excel'>('pdf')
+  const [includeDetailedTable, setIncludeDetailedTable] = useState(false)
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
   const [reportSuccess, setReportSuccess] = useState(false)
@@ -290,204 +297,47 @@ export function StudentsList() {
       
       // Get date range based on selected period
       const getDateRange = async (): Promise<{ start: string; end: string }> => {
-        const today = new Date()
-        const end = today.toISOString().split('T')[0]
-        
-        switch (reportPeriod) {
-          case 'this_month': {
-            const { data: activePeriod } = await supabase
-              .from('mess_periods')
-              .select('start_date, end_date')
-              .eq('user_id', selectedStudent.id)
-              .eq('is_active', true)
-              .maybeSingle()
-            
-            if (activePeriod) {
-              return {
-                start: new Date(activePeriod.start_date).toISOString().split('T')[0],
-                end: new Date(activePeriod.end_date).toISOString().split('T')[0]
-              }
-            }
-            const start = new Date(today.getFullYear(), today.getMonth(), 1)
-            return { start: start.toISOString().split('T')[0], end }
-          }
-          case 'last_month': {
-            const { data: previousPeriod } = await supabase
-              .from('mess_periods')
-              .select('start_date, end_date')
-              .eq('user_id', selectedStudent.id)
-              .eq('is_active', false)
-              .order('end_date', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-            
-            if (previousPeriod) {
-              return {
-                start: new Date(previousPeriod.start_date).toISOString().split('T')[0],
-                end: new Date(previousPeriod.end_date).toISOString().split('T')[0]
-              }
-            }
-            const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-            const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
-            return {
-              start: lastMonth.toISOString().split('T')[0],
-              end: lastMonthEnd.toISOString().split('T')[0]
-            }
-          }
-          case 'last_3_months': {
-            const { data: periods } = await supabase
-              .from('mess_periods')
-              .select('start_date, end_date')
-              .eq('user_id', selectedStudent.id)
-              .order('start_date', { ascending: false })
-              .limit(3)
-            
-            if (periods && periods.length > 0) {
-              const oldestPeriod = periods[periods.length - 1]
-              return {
-                start: new Date(oldestPeriod.start_date).toISOString().split('T')[0],
-                end
-              }
-            }
-            const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate())
-            return { start: threeMonthsAgo.toISOString().split('T')[0], end }
-          }
-          case 'all_time': {
-            const { data: earliestPeriod } = await supabase
-              .from('mess_periods')
-              .select('start_date')
-              .eq('user_id', selectedStudent.id)
-              .order('start_date', { ascending: true })
-              .limit(1)
-              .maybeSingle()
-            
-            if (earliestPeriod) {
-              return {
-                start: new Date(earliestPeriod.start_date).toISOString().split('T')[0],
-                end
-              }
-            }
-            const start = selectedStudent.created_at 
-              ? new Date(selectedStudent.created_at).toISOString().split('T')[0]
-              : '2024-01-01'
-            return { start, end }
-          }
-        }
+        return getMessPeriodDateRange(
+          supabase,
+          selectedStudent.id,
+          reportPeriod,
+          undefined,
+          selectedStudent.created_at || undefined
+        )
       }
       
       const { start, end } = await getDateRange()
       
-      // Get period type label
-      let periodTypeLabel = ''
-      switch (reportPeriod) {
-        case 'this_month':
-          periodTypeLabel = 'Current Mess Month'
-          break
-        case 'last_month':
-          periodTypeLabel = 'Previous Mess Month'
-          break
-        case 'last_3_months':
-          periodTypeLabel = 'Last 3 Mess Months'
-          break
-        case 'all_time':
-          periodTypeLabel = 'All Time'
-          break
-      }
+      // Use centralized data fetcher
+      const fetchedData = await fetchReportData({
+        supabase,
+        userId: selectedStudent.id,
+        startDate: start,
+        endDate: end
+      })
       
-      // Fetch student data
-      const { data: studentData, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', selectedStudent.id)
-        .single()
-      
-      if (profileError) throw new Error('Failed to load student data')
-      
-      // Fetch mess period
-      const { data: messPeriodData } = await supabase
-        .from('mess_periods')
-        .select('*')
-        .eq('user_id', selectedStudent.id)
-        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
-        .order('start_date', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      
-      // Fetch logs
-      const { data: logsData, error: logsError } = await supabase
-        .from('daily_logs')
-        .select('*')
-        .eq('user_id', selectedStudent.id)
-        .gte('date', start)
-        .lte('date', end)
-        .order('date', { ascending: true })
-      
-      if (logsError) throw new Error('Failed to load attendance data')
-      
-      if (!logsData || logsData.length === 0) {
-        throw new Error('No attendance data found for the selected period')
-      }
-      
-      // Fetch leaves
-      const { data: leavesData } = await supabase
-        .from('leaves')
-        .select('*')
-        .eq('user_id', selectedStudent.id)
-        .eq('is_approved', true)
-        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
+      const periodTypeLabel = getPeriodTypeLabel(reportPeriod)
       
       if (exportFormat === 'pdf') {
-        const reportData = {
-          student: {
-            id: studentData.id,
-            full_name: studentData.full_name || 'Student',
-            unique_short_id: studentData.unique_short_id || 0,
-            photo_url: studentData.photo_url,
-            meal_plan: messPeriodData?.meal_plan || 'DL',
-          },
-          messPeriod: messPeriodData ? {
-            start_date: messPeriodData.start_date,
-            end_date: messPeriodData.end_date,
-            original_end_date: messPeriodData.original_end_date,
-          } : null,
-          logs: logsData.map(log => ({
-            log_id: log.id,
-            date: log.date,
-            meal_type: log.meal_type,
-            status: log.status || 'VERIFIED',
-            created_at: log.created_at,
-          })),
-          leaves: leavesData || [],
-          dateRange: { start, end },
-          includeDetailedTable: true,
-          isCustomRange: false,
-          periodType: periodTypeLabel
-        }
+        // Add additional fields needed for PDF generation
+        const pdfReportData = transformForPDFReport(
+          fetchedData,
+          { start, end },
+          includeDetailedTable,
+          periodTypeLabel
+        )
         
-        await generateProfessionalReport(reportData)
+        // Set isCustomRange flag
+        pdfReportData.isCustomRange = false
+        
+        await generateProfessionalReport(pdfReportData)
       } else {
-        const excelData = {
-          student: {
-            full_name: studentData.full_name || 'Student',
-            unique_short_id: studentData.unique_short_id || 0,
-            meal_plan: studentData.meal_plan,
-          },
-          logs: logsData.map(log => ({
-            date: log.date,
-            meal_type: log.meal_type,
-            status: log.status || 'VERIFIED',
-            created_at: log.created_at,
-          })),
-          leaves: leavesData || [],
-          messPeriod: messPeriodData ? {
-            start_date: messPeriodData.start_date,
-            end_date: messPeriodData.end_date,
-            original_end_date: messPeriodData.original_end_date,
-          } : null,
-          dateRange: { start, end },
-          periodType: periodTypeLabel,
-          includeDetailedTable: true
-        }
+        const excelData = transformForExcelReport(
+          fetchedData,
+          { start, end },
+          includeDetailedTable,
+          periodTypeLabel
+        )
         
         generateAttendanceExcel(excelData)
       }
@@ -1459,6 +1309,23 @@ export function StudentsList() {
                             <option value="pdf">PDF Report</option>
                             <option value="excel">Excel Spreadsheet</option>
                           </select>
+                        </div>
+
+                        {/* Include Detailed Table Checkbox */}
+                        <div className="flex items-start gap-3 p-3 bg-background rounded-lg border border-border">
+                          <input
+                            type="checkbox"
+                            id="includeDetailedTable"
+                            checked={includeDetailedTable}
+                            onChange={(e) => setIncludeDetailedTable(e.target.checked)}
+                            className="mt-1 w-4 h-4 text-primary bg-background border-gray-300 rounded focus:ring-primary focus:ring-2"
+                          />
+                          <label htmlFor="includeDetailedTable" className="flex-1 cursor-pointer">
+                            <span className="text-sm font-medium block">Include Detailed Meal Record Table</span>
+                            <span className="text-xs text-muted-foreground block mt-1">
+                              Add a day-by-day breakdown of all meal attendance records in the report
+                            </span>
+                          </label>
                         </div>
                       </div>
 

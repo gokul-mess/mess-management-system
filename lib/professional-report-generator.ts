@@ -3,6 +3,9 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Chart, ChartConfiguration, registerables } from 'chart.js'
+import { CONSUMED_STATUSES, LUNCH_CUTOFF_HOUR, DINNER_CUTOFF_HOUR } from '@/lib/report-constants'
+import { toIST, getISTDateString } from '@/lib/date-utils'
+import { calculateLeaveDaysWithIntegrity } from '@/lib/leave-calculator'
 
 // Register Chart.js components
 Chart.register(...registerables)
@@ -21,7 +24,7 @@ interface ReportData {
   messPeriod?: {
     start_date: string
     end_date: string
-    original_end_date: string
+    original_end_date: string | null
   } | null
   logs: Array<{
     log_id: string
@@ -56,38 +59,6 @@ function sanitizeFileNameComponent(input: string): string {
   const safeCharsOnly = withUnderscores.replace(/[^a-zA-Z0-9_-]/g, '_')
   const collapsed = safeCharsOnly.replace(/_+/g, '_').replace(/^_+|_+$/g, '')
   return collapsed || 'Student'
-}
-
-// Brand colors matching website theme
-// const COLORS = {
-//   primary: '#2E7D32',
-//   accent: '#F9A825',
-//   blue: '#2196F3',
-//   green: '#4CAF50',
-//   red: '#F44336',
-//   orange: '#FF9800',
-//   purple: '#9C27B0',
-//   teal: '#009688',
-//   darkGray: '#424242',
-//   lightGray: '#F5F5F5',
-//   white: '#FFFFFF'
-// }
-
-// Helper function to convert any date to Indian Standard Time (IST)
-function toIST(date: Date | string): Date {
-  const d = typeof date === 'string' ? new Date(date) : date
-  const istOffset = 5.5 * 60 * 60 * 1000
-  const utcTime = d.getTime() + (d.getTimezoneOffset() * 60 * 1000)
-  return new Date(utcTime + istOffset)
-}
-
-// Helper function to get date string in IST (YYYY-MM-DD format)
-function getISTDateString(date: Date | string): string {
-  const istDate = toIST(date)
-  const year = istDate.getFullYear()
-  const month = String(istDate.getMonth() + 1).padStart(2, '0')
-  const day = String(istDate.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 // Helper to create chart as base64 image
@@ -125,14 +96,14 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   const margin = 15
 
   // Get current date/time in IST for filtering future dates
-  const now = toIST(new Date())
+  const now = new Date()
   const todayDateKey = getISTDateString(now)
 
   // Create a set of dates where meals were consumed (from logs in report period)
   const consumedDatesInPeriod = new Set<string>()
   data.logs.forEach(log => {
     const statusUpper = (log.status || '').toUpperCase()
-    if (statusUpper === 'VERIFIED' || statusUpper === 'TAKEN' || statusUpper === 'PRESENT' || statusUpper === 'CONSUMED') {
+    if (CONSUMED_STATUSES.includes(statusUpper as typeof CONSUMED_STATUSES[number])) {
       consumedDatesInPeriod.add(getISTDateString(log.date))
     }
   })
@@ -163,37 +134,15 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   // Calculate leave statistics for Leave Extension Summary (all approved leaves in the selected mess period)
   // Exclude days where student consumed any meal (integrity check)
   let totalLeaveDaysOverall = 0
-  // let totalLeaveMealsOverall = 0
-  
-  // const overallMealPlan = data.student.meal_plan || 'DL'
-  // const overallMealsPerDay = overallMealPlan === 'DL' ? 2 : 1
   
   if (messPeriodStart && messPeriodEnd && data.leaves && data.leaves.length > 0) {
-    data.leaves.forEach(leave => {
-      if (leave.is_approved === true) {
-        const leaveStart = toIST(leave.start_date)
-        const leaveEnd = toIST(leave.end_date)
-        
-        // Check if leave overlaps with the mess period
-        if (leaveStart <= messPeriodEnd && leaveEnd >= messPeriodStart) {
-          const periodStart = leaveStart > messPeriodStart ? leaveStart : messPeriodStart
-          const periodEnd = leaveEnd < messPeriodEnd ? leaveEnd : messPeriodEnd
-          const leaveDate = new Date(periodStart)
-          
-          while (leaveDate <= periodEnd) {
-            const dateKey = getISTDateString(leaveDate)
-            
-            // Only count as leave day if NO meal was consumed on that date
-            if (!consumedDatesInPeriod.has(dateKey)) {
-              totalLeaveDaysOverall++
-              // totalLeaveMealsOverall += overallMealsPerDay
-            }
-            
-            leaveDate.setDate(leaveDate.getDate() + 1)
-          }
-        }
-      }
-    })
+    const { totalLeaveDays } = calculateLeaveDaysWithIntegrity(
+      data.leaves,
+      consumedDatesInPeriod,
+      messPeriodStart.toISOString().split('T')[0],
+      messPeriodEnd.toISOString().split('T')[0]
+    )
+    totalLeaveDaysOverall = totalLeaveDays
   }
 
   // Calculate leave days/meals WITHIN the report period for statistics
@@ -213,12 +162,21 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   const consumedDates = new Set<string>()
   data.logs.forEach(log => {
     const statusUpper = (log.status || '').toUpperCase()
-    if (statusUpper === 'VERIFIED' || statusUpper === 'TAKEN' || statusUpper === 'PRESENT' || statusUpper === 'CONSUMED') {
+    if (CONSUMED_STATUSES.includes(statusUpper as typeof CONSUMED_STATUSES[number])) {
       consumedDates.add(getISTDateString(log.date))
     }
   })
   
   if (data.leaves && data.leaves.length > 0) {
+    const { totalLeaveDays } = calculateLeaveDaysWithIntegrity(
+      data.leaves,
+      consumedDates,
+      data.dateRange.start,
+      data.dateRange.end
+    )
+    leaveDaysInPeriod = totalLeaveDays
+    
+    // Calculate past leave meals for skipped calculation
     data.leaves.forEach(leave => {
       if (leave.is_approved === true) {
         const leaveStart = toIST(leave.start_date)
@@ -235,8 +193,6 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
             
             // Only count as leave day if NO meal was consumed on that date
             if (!consumedDates.has(dateKey)) {
-              leaveDaysInPeriod++
-              
               // Also count past leave meals separately
               if (dateKey <= todayDateKey) {
                 pastLeaveMeals += studentMealsPerDay
@@ -274,7 +230,7 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
     const logDateKey = getISTDateString(log.date)
     if (logDateKey <= todayDateKey) {
       const statusUpper = (log.status || '').toUpperCase()
-      if (statusUpper === 'VERIFIED' || statusUpper === 'TAKEN' || statusUpper === 'PRESENT' || statusUpper === 'CONSUMED') {
+      if (CONSUMED_STATUSES.includes(statusUpper as typeof CONSUMED_STATUSES[number])) {
         mealsTaken++
       }
     }
@@ -302,7 +258,7 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
     if (logDateKey <= todayDateKey) {
       const statusUpper = (log.status || '').toUpperCase()
       const mealTypeUpper = (log.meal_type || '').toUpperCase()
-      if (statusUpper === 'VERIFIED' || statusUpper === 'TAKEN' || statusUpper === 'PRESENT' || statusUpper === 'CONSUMED') {
+      if (CONSUMED_STATUSES.includes(statusUpper as typeof CONSUMED_STATUSES[number])) {
         if (mealTypeUpper === 'LUNCH') lunchCount++
         if (mealTypeUpper === 'DINNER') dinnerCount++
       }
@@ -1088,7 +1044,7 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
       const mealTypeUpper = (log.meal_type || '').toUpperCase()
       let status: string | null = null
       
-      if (statusUpper === 'VERIFIED' || statusUpper === 'TAKEN' || statusUpper === 'PRESENT' || statusUpper === 'CONSUMED') {
+      if (CONSUMED_STATUSES.includes(statusUpper as typeof CONSUMED_STATUSES[number])) {
         status = 'TAKEN'
       } else if (statusUpper === 'LEAVE' || statusUpper === 'APPROVED_LEAVE') {
         status = 'LEAVE'
@@ -1131,7 +1087,7 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
           if (dayData.lunch === null) {
             if (isFutureDate) {
               dayData.lunch = '-'
-            } else if (isToday && currentHour < 14) {
+            } else if (isToday && currentHour < LUNCH_CUTOFF_HOUR) {
               dayData.lunch = '-'
             } else {
               dayData.lunch = 'SKIPPED'
@@ -1141,7 +1097,7 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
           if (dayData.dinner === null) {
             if (isFutureDate) {
               dayData.dinner = '-'
-            } else if (isToday && currentHour < 20) {
+            } else if (isToday && currentHour < DINNER_CUTOFF_HOUR) {
               dayData.dinner = '-'
             } else {
               dayData.dinner = 'SKIPPED'
@@ -1150,7 +1106,7 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
         }
       } else {
         const mealType = mealPlan === 'L' ? 'lunch' : 'dinner'
-        const mealTimeCutoff = mealPlan === 'L' ? 14 : 20
+        const mealTimeCutoff = mealPlan === 'L' ? LUNCH_CUTOFF_HOUR : DINNER_CUTOFF_HOUR
         
         if (dayData[mealType] === null) {
           if (isFutureDate) {

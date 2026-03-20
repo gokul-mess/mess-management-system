@@ -1,6 +1,9 @@
 // Excel Generator for Attendance Data Export with Professional Formatting
 import * as XLSX from 'xlsx'
 import type { WorkSheet } from 'xlsx'
+import { CONSUMED_STATUSES } from '@/lib/report-constants'
+import { toIST, getISTDateString } from '@/lib/date-utils'
+import { calculateLeaveDaysWithIntegrity } from '@/lib/leave-calculator'
 
 interface AttendanceRecord {
   date: string
@@ -26,7 +29,7 @@ interface ExcelData {
   messPeriod?: {
     start_date: string
     end_date: string
-    original_end_date: string
+    original_end_date: string | null
   } | null
   dateRange: {
     start: string
@@ -73,7 +76,6 @@ export function generateAttendanceExcel(data: ExcelData): void {
   
   // Track row indices for styling
   let currentRow = 0
-  // const headerRows: number[] = []
   const sectionTitleRows: number[] = []
   const tableHeaderRows: number[] = []
   const leaveRows: number[] = []
@@ -114,83 +116,25 @@ export function generateAttendanceExcel(data: ExcelData): void {
   const dinnerCount = data.logs.filter(log => log.meal_type.toUpperCase() === 'DINNER').length
   const consumedCount = data.logs.filter(log => {
     const status = log.status.toUpperCase()
-    return status === 'CONSUMED' || status === 'VERIFIED' || status === 'TAKEN' || status === 'PRESENT'
+    return CONSUMED_STATUSES.includes(status as typeof CONSUMED_STATUSES[number])
   }).length
   
   // Calculate approved leave days with integrity check (exclude days with consumed meals)
-  let approvedLeaveDays = 0
-  const actualLeaveDates: { start: string; end: string; days: number }[] = []
-  
-  // Create a set of dates where meals were consumed
+  // Build consumed dates set
   const consumedDates = new Set<string>()
   data.logs.forEach(log => {
     const status = log.status.toUpperCase()
-    if (status === 'CONSUMED' || status === 'VERIFIED' || status === 'TAKEN' || status === 'PRESENT') {
-      consumedDates.add(new Date(log.date).toISOString().split('T')[0])
+    if (CONSUMED_STATUSES.includes(status as typeof CONSUMED_STATUSES[number])) {
+      consumedDates.add(getISTDateString(log.date))
     }
   })
   
-  if (data.leaves && data.leaves.length > 0) {
-    const startDate = new Date(data.dateRange.start)
-    const endDate = new Date(data.dateRange.end)
-    
-    data.leaves.forEach(leave => {
-      if (leave.is_approved) {
-        const leaveStart = new Date(leave.start_date)
-        const leaveEnd = new Date(leave.end_date)
-        
-        // Calculate overlap with report period
-        const overlapStart = leaveStart > startDate ? leaveStart : startDate
-        const overlapEnd = leaveEnd < endDate ? leaveEnd : endDate
-        
-        if (overlapStart <= overlapEnd) {
-          // Find continuous leave periods (excluding consumed dates)
-          let periodStart: Date | null = null
-          let periodDays = 0
-          const currentDate = new Date(overlapStart)
-          
-          while (currentDate <= overlapEnd) {
-            const dateKey = currentDate.toISOString().split('T')[0]
-            
-            if (!consumedDates.has(dateKey)) {
-              // This is a valid leave day
-              if (!periodStart) {
-                periodStart = new Date(currentDate)
-              }
-              periodDays++
-              approvedLeaveDays++
-            } else {
-              // Meal was consumed, break the leave period
-              if (periodStart && periodDays > 0) {
-                const periodEnd = new Date(currentDate)
-                periodEnd.setDate(periodEnd.getDate() - 1)
-                actualLeaveDates.push({
-                  start: periodStart.toISOString().split('T')[0],
-                  end: periodEnd.toISOString().split('T')[0],
-                  days: periodDays
-                })
-              }
-              periodStart = null
-              periodDays = 0
-            }
-            
-            currentDate.setDate(currentDate.getDate() + 1)
-          }
-          
-          // Add the last period if exists
-          if (periodStart && periodDays > 0) {
-            const periodEnd = new Date(currentDate)
-            periodEnd.setDate(periodEnd.getDate() - 1)
-            actualLeaveDates.push({
-              start: periodStart.toISOString().split('T')[0],
-              end: periodEnd.toISOString().split('T')[0],
-              days: periodDays
-            })
-          }
-        }
-      }
-    })
-  }
+  const { totalLeaveDays: approvedLeaveDays, leavePeriods: actualLeaveDates } = calculateLeaveDaysWithIntegrity(
+    data.leaves || [],
+    consumedDates,
+    data.dateRange.start,
+    data.dateRange.end
+  )
   
   sectionTitleRows.push(currentRow)
   sheetData.push(['STATISTICS SUMMARY'])
@@ -237,17 +181,26 @@ export function generateAttendanceExcel(data: ExcelData): void {
       return new Date(a.date).getTime() - new Date(b.date).getTime()
     })
     
+    // Create a set of dates where meals were consumed
+    const consumedDates = new Set<string>()
+    data.logs.forEach(log => {
+      const status = log.status.toUpperCase()
+      if (CONSUMED_STATUSES.includes(status as typeof CONSUMED_STATUSES[number])) {
+        consumedDates.add(getISTDateString(log.date))
+      }
+    })
+    
     // Create a set of leave dates for marking (only dates without consumed meals)
     const leaveDates = new Set<string>()
     if (data.leaves && data.leaves.length > 0) {
       data.leaves.forEach(leave => {
         if (leave.is_approved) {
-          const leaveStart = new Date(leave.start_date)
-          const leaveEnd = new Date(leave.end_date)
+          const leaveStart = toIST(leave.start_date)
+          const leaveEnd = toIST(leave.end_date)
           const currentDate = new Date(leaveStart)
           
           while (currentDate <= leaveEnd) {
-            const dateKey = currentDate.toISOString().split('T')[0]
+            const dateKey = getISTDateString(currentDate)
             // Only mark as leave if no meal was consumed on that date
             if (!consumedDates.has(dateKey)) {
               leaveDates.add(dateKey)
@@ -320,12 +273,12 @@ export function generateAttendanceExcel(data: ExcelData): void {
     currentRow++
     
     actualLeaveDates.forEach((leave, index) => {
-      const startDate = new Date(leave.start).toLocaleDateString('en-IN', {
+      const startDate = new Date(leave.start_date).toLocaleDateString('en-IN', {
         day: '2-digit',
         month: 'short',
         year: 'numeric'
       })
-      const endDate = new Date(leave.end).toLocaleDateString('en-IN', {
+      const endDate = new Date(leave.end_date).toLocaleDateString('en-IN', {
         day: '2-digit',
         month: 'short',
         year: 'numeric'
@@ -355,52 +308,40 @@ export function generateAttendanceExcel(data: ExcelData): void {
     sheetData.push([])
     currentRow++
     
-    const messStartDate = new Date(data.messPeriod.start_date).toLocaleDateString('en-IN', {
+    const messStartDate = toIST(data.messPeriod.start_date).toLocaleDateString('en-IN', {
       day: '2-digit',
       month: 'long',
       year: 'numeric'
     })
-    const originalEndDate = new Date(data.messPeriod.original_end_date).toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric'
-    })
-    const updatedEndDate = new Date(data.messPeriod.end_date).toLocaleDateString('en-IN', {
+    const originalEndDate = data.messPeriod.original_end_date 
+      ? toIST(data.messPeriod.original_end_date).toLocaleDateString('en-IN', {
+          day: '2-digit',
+          month: 'long',
+          year: 'numeric'
+        })
+      : 'N/A'
+    const updatedEndDate = toIST(data.messPeriod.end_date).toLocaleDateString('en-IN', {
       day: '2-digit',
       month: 'long',
       year: 'numeric'
     })
     
     // Calculate total leave days in mess period (with integrity check)
-    let totalMessPeriodLeaveDays = 0
-    if (data.leaves && data.leaves.length > 0) {
-      const messStart = new Date(data.messPeriod.start_date)
-      const messEnd = new Date(data.messPeriod.end_date)
-      
-      data.leaves.forEach(leave => {
-        if (leave.is_approved) {
-          const leaveStart = new Date(leave.start_date)
-          const leaveEnd = new Date(leave.end_date)
-          
-          // Calculate overlap with mess period
-          const overlapStart = leaveStart > messStart ? leaveStart : messStart
-          const overlapEnd = leaveEnd < messEnd ? leaveEnd : messEnd
-          
-          if (overlapStart <= overlapEnd) {
-            const currentDate = new Date(overlapStart)
-            
-            while (currentDate <= overlapEnd) {
-              const dateKey = currentDate.toISOString().split('T')[0]
-              // Only count if no meal was consumed
-              if (!consumedDates.has(dateKey)) {
-                totalMessPeriodLeaveDays++
-              }
-              currentDate.setDate(currentDate.getDate() + 1)
-            }
-          }
-        }
-      })
-    }
+    // Build consumed dates set
+    const consumedDatesForMessPeriod = new Set<string>()
+    data.logs.forEach(log => {
+      const status = log.status.toUpperCase()
+      if (CONSUMED_STATUSES.includes(status as typeof CONSUMED_STATUSES[number])) {
+        consumedDatesForMessPeriod.add(getISTDateString(log.date))
+      }
+    })
+    
+    const { totalLeaveDays: totalMessPeriodLeaveDays } = calculateLeaveDaysWithIntegrity(
+      data.leaves || [],
+      consumedDatesForMessPeriod,
+      data.messPeriod.start_date,
+      data.messPeriod.end_date
+    )
     
     sheetData.push(['Approved Leave Days:', `${totalMessPeriodLeaveDays} days`])
     currentRow++

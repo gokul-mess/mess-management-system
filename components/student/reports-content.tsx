@@ -19,6 +19,12 @@ import { generateProfessionalReport } from '@/lib/professional-report-generator'
 import { generateAttendanceExcel } from '@/lib/excel-generator'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
 import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
+import { 
+  getMessPeriodDateRange, 
+  getPeriodTypeLabel,
+  type DateRangeType 
+} from '@/lib/mess-period-utils'
+import { fetchReportData, transformForPDFReport, transformForExcelReport } from '@/lib/report-data-fetcher'
 
 interface ReportsContentProps {
   profile: {
@@ -31,10 +37,8 @@ interface ReportsContentProps {
   } | null
 }
 
-type DateRangeOption = 'this_month' | 'last_month' | 'last_3_months' | 'all_time' | 'custom'
-
 export function ReportsContent({ profile }: ReportsContentProps) {
-  const [selectedRange, setSelectedRange] = useState<DateRangeOption>('this_month')
+  const [selectedRange, setSelectedRange] = useState<DateRangeType>('this_month')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [recordCount, setRecordCount] = useState<number | null>(null)
@@ -60,100 +64,13 @@ export function ReportsContent({ profile }: ReportsContentProps) {
   } = useAsyncOperation('Download Excel')
 
   const getDateRange = async (): Promise<{ start: string; end: string }> => {
-    const today = new Date()
-    const end = today.toISOString().split('T')[0]
-    
-    switch (selectedRange) {
-      case 'this_month': {
-        // Fetch current active mess period
-        const { data: activePeriod } = await supabase
-          .from('mess_periods')
-          .select('start_date, end_date')
-          .eq('user_id', profile?.id)
-          .eq('is_active', true)
-          .maybeSingle()
-        
-        if (activePeriod) {
-          return {
-            start: new Date(activePeriod.start_date).toISOString().split('T')[0],
-            end: new Date(activePeriod.end_date).toISOString().split('T')[0]
-          }
-        }
-        // Fallback to current calendar month if no active period
-        const start = new Date(today.getFullYear(), today.getMonth(), 1)
-        return { start: start.toISOString().split('T')[0], end }
-      }
-      case 'last_month': {
-        // Fetch previous mess period (most recent inactive period)
-        const { data: previousPeriod } = await supabase
-          .from('mess_periods')
-          .select('start_date, end_date')
-          .eq('user_id', profile?.id)
-          .eq('is_active', false)
-          .order('end_date', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        
-        if (previousPeriod) {
-          return {
-            start: new Date(previousPeriod.start_date).toISOString().split('T')[0],
-            end: new Date(previousPeriod.end_date).toISOString().split('T')[0]
-          }
-        }
-        // Fallback to previous calendar month
-        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-        const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
-        return {
-          start: lastMonth.toISOString().split('T')[0],
-          end: lastMonthEnd.toISOString().split('T')[0]
-        }
-      }
-      case 'last_3_months': {
-        // Fetch last 3 mess periods
-        const { data: periods } = await supabase
-          .from('mess_periods')
-          .select('start_date, end_date')
-          .eq('user_id', profile?.id)
-          .order('start_date', { ascending: false })
-          .limit(3)
-        
-        if (periods && periods.length > 0) {
-          const oldestPeriod = periods[periods.length - 1]
-          return {
-            start: new Date(oldestPeriod.start_date).toISOString().split('T')[0],
-            end
-          }
-        }
-        // Fallback to last 3 calendar months
-        const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate())
-        return { start: threeMonthsAgo.toISOString().split('T')[0], end }
-      }
-      case 'all_time': {
-        // Fetch earliest mess period start date
-        const { data: earliestPeriod } = await supabase
-          .from('mess_periods')
-          .select('start_date')
-          .eq('user_id', profile?.id)
-          .order('start_date', { ascending: true })
-          .limit(1)
-          .maybeSingle()
-        
-        if (earliestPeriod) {
-          return {
-            start: new Date(earliestPeriod.start_date).toISOString().split('T')[0],
-            end
-          }
-        }
-        // Fallback to account creation date or default
-        const start = profile?.created_at 
-          ? new Date(profile.created_at).toISOString().split('T')[0]
-          : '2024-01-01'
-        return { start, end }
-      }
-      case 'custom': {
-        return { start: customStartDate, end: customEndDate }
-      }
-    }
+    return getMessPeriodDateRange(
+      supabase,
+      profile?.id || '',
+      selectedRange,
+      selectedRange === 'custom' ? { start: customStartDate, end: customEndDate } : undefined,
+      profile?.created_at || undefined
+    )
   }
 
   const fetchRecordCount = async () => {
@@ -212,96 +129,22 @@ export function ReportsContent({ profile }: ReportsContentProps) {
         }
       }
       
-      // Get period type label
-      let periodTypeLabel = ''
-      switch (selectedRange) {
-        case 'this_month':
-          periodTypeLabel = 'Current Mess Month'
-          break
-        case 'last_month':
-          periodTypeLabel = 'Previous Mess Month'
-          break
-        case 'last_3_months':
-          periodTypeLabel = 'Last 3 Mess Months'
-          break
-        case 'all_time':
-          periodTypeLabel = 'All Time'
-          break
-        case 'custom':
-          periodTypeLabel = 'Custom Range'
-          break
-      }
+      // Use centralized data fetcher
+      const fetchedData = await fetchReportData({
+        supabase,
+        userId: profile.id,
+        startDate: start,
+        endDate: end
+      })
       
-      const { data: studentData, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', profile.id)
-        .single()
+      const periodTypeLabel = getPeriodTypeLabel(selectedRange)
       
-      if (profileError) throw new Error('Failed to load profile data. Please try again.')
-      
-      const { data: logsData, error: logsError } = await supabase
-        .from('daily_logs')
-        .select('*')
-        .eq('user_id', profile.id)
-        .gte('date', start)
-        .lte('date', end)
-        .order('date', { ascending: true })
-      
-      if (logsError) throw new Error('Failed to load attendance data. Please try again.')
-      
-      if (!logsData || logsData.length === 0) {
-        throw new Error('No attendance data found for the selected period')
-      }
-      
-      // Fetch approved leaves for the period
-      const { data: leavesData, error: leavesError } = await supabase
-        .from('leaves')
-        .select('*')
-        .eq('user_id', profile.id)
-        .eq('is_approved', true)
-        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
-      
-      if (leavesError) {
-        console.error('Error fetching leaves:', leavesError)
-      }
-      
-      // Fetch the mess period that overlaps with the selected report date range
-      const { data: messPeriodData, error: messPeriodError } = await supabase
-        .from('mess_periods')
-        .select('*')
-        .eq('user_id', profile.id)
-        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
-        .order('start_date', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      
-      if (messPeriodError) {
-        console.error('Error fetching mess period:', messPeriodError)
-      }
-      
-      const excelData = {
-        student: {
-          full_name: studentData.full_name || 'Student',
-          unique_short_id: studentData.unique_short_id || 0,
-          meal_plan: messPeriodData?.meal_plan || 'DL',
-        },
-        logs: logsData.map(log => ({
-          date: log.date,
-          meal_type: log.meal_type,
-          status: log.status || 'VERIFIED',
-          created_at: log.created_at,
-        })),
-        leaves: leavesData || [],
-        messPeriod: messPeriodData ? {
-          start_date: messPeriodData.start_date,
-          end_date: messPeriodData.end_date,
-          original_end_date: messPeriodData.original_end_date,
-        } : null,
-        dateRange: { start, end },
-        periodType: periodTypeLabel,
-        includeDetailedTable
-      }
+      const excelData = transformForExcelReport(
+        fetchedData,
+        { start, end },
+        includeDetailedTable,
+        periodTypeLabel
+      )
       
       generateAttendanceExcel(excelData)
     })
@@ -324,112 +167,37 @@ export function ReportsContent({ profile }: ReportsContentProps) {
         }
       }
       
-      // Get period type label
-      let periodTypeLabel = ''
-      switch (selectedRange) {
-        case 'this_month':
-          periodTypeLabel = 'Current Mess Month'
-          break
-        case 'last_month':
-          periodTypeLabel = 'Previous Mess Month'
-          break
-        case 'last_3_months':
-          periodTypeLabel = 'Last 3 Mess Months'
-          break
-        case 'all_time':
-          periodTypeLabel = 'All Time'
-          break
-        case 'custom':
-          periodTypeLabel = 'Custom Range'
-          break
-      }
+      // Use centralized data fetcher
+      const fetchedData = await fetchReportData({
+        supabase,
+        userId: profile.id,
+        startDate: start,
+        endDate: end
+      })
       
-      const { data: studentData, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', profile.id)
-        .single()
+      const periodTypeLabel = getPeriodTypeLabel(selectedRange)
       
-      if (profileError) throw new Error('Failed to load profile data. Please try again.')
-      
-      // Fetch the mess period that overlaps with the selected report date range
-      // This ensures we show the correct mess period data in Leave Extension Summary
-      const { data: messPeriodData, error: messPeriodError } = await supabase
-        .from('mess_periods')
-        .select('*')
-        .eq('user_id', profile.id)
-        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
-        .order('start_date', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      
-      if (messPeriodError) {
-        console.error('Error fetching mess period:', messPeriodError)
-      }
-      
-      const { data: logsData, error: logsError } = await supabase
-        .from('daily_logs')
-        .select('*')
-        .eq('user_id', profile.id)
-        .gte('date', start)
-        .lte('date', end)
-        .order('date', { ascending: true })
-      
-      if (logsError) throw new Error('Failed to load attendance data. Please try again.')
-      
-      if (!logsData || logsData.length === 0) {
-        throw new Error('No attendance data found for the selected period')
-      }
-      
-      // Fetch approved leaves for the period
-      const { data: leavesData, error: leavesError } = await supabase
-        .from('leaves')
-        .select('*')
-        .eq('user_id', profile.id)
-        .eq('is_approved', true)
-        .or(`and(start_date.lte.${end},end_date.gte.${start})`)
-      
-      if (leavesError) {
-        console.error('Error fetching leaves:', leavesError)
-      }
-      
-      const reportData = {
-        student: {
-          id: studentData.id,
-          full_name: studentData.full_name || 'Student',
-          unique_short_id: studentData.unique_short_id || 0,
-          photo_url: studentData.photo_url,
-          meal_plan: messPeriodData?.meal_plan || 'DL',
-        },
-        messPeriod: messPeriodData ? {
-          start_date: messPeriodData.start_date,
-          end_date: messPeriodData.end_date,
-          original_end_date: messPeriodData.original_end_date,
-        } : null,
-        logs: logsData.map(log => ({
-          log_id: log.id,
-          date: log.date,
-          meal_type: log.meal_type,
-          status: log.status || 'VERIFIED',
-          created_at: log.created_at,
-        })),
-        leaves: leavesData || [],
-        dateRange: { start, end },
+      // Add additional fields needed for PDF generation
+      const pdfReportData = transformForPDFReport(
+        fetchedData,
+        { start, end },
         includeDetailedTable,
-        isCustomRange: selectedRange === 'custom',
-        periodType: periodTypeLabel
-      }
+        periodTypeLabel
+      )
       
-      await generateProfessionalReport(reportData)
+      // Set isCustomRange flag
+      pdfReportData.isCustomRange = selectedRange === 'custom'
+      
+      await generateProfessionalReport(pdfReportData)
     })
   }
 
   const dateRangeOptions = [
-    { id: 'this_month' as DateRangeOption, label: 'Current Mess Month', description: 'Active mess period', icon: Calendar, color: 'from-blue-500 to-cyan-500' },
-    { id: 'last_month' as DateRangeOption, label: 'Previous Mess Month', description: 'Last completed period', icon: Clock, color: 'from-purple-500 to-pink-500' },
-    { id: 'last_3_months' as DateRangeOption, label: 'Last 3 Mess Months', description: 'Last 3 periods', icon: TrendingUp, color: 'from-amber-500 to-orange-500' },
-    { id: 'all_time' as DateRangeOption, label: 'All Time', description: 'Complete history', icon: BarChart3, color: 'from-green-500 to-emerald-500' },
-    { id: 'custom' as DateRangeOption, label: 'Custom Range', description: 'Select your dates', icon: Calendar, color: 'from-slate-500 to-gray-500' },
+    { id: 'this_month' as DateRangeType, label: 'Current Mess Month', description: 'Active mess period', icon: Calendar, color: 'from-blue-500 to-cyan-500' },
+    { id: 'last_month' as DateRangeType, label: 'Previous Mess Month', description: 'Last completed period', icon: Clock, color: 'from-purple-500 to-pink-500' },
+    { id: 'last_3_months' as DateRangeType, label: 'Last 3 Mess Months', description: 'Last 3 periods', icon: TrendingUp, color: 'from-amber-500 to-orange-500' },
+    { id: 'all_time' as DateRangeType, label: 'All Time', description: 'Complete history', icon: BarChart3, color: 'from-green-500 to-emerald-500' },
+    { id: 'custom' as DateRangeType, label: 'Custom Range', description: 'Select your dates', icon: Calendar, color: 'from-slate-500 to-gray-500' },
   ]
 
   const reportFeatures = [
@@ -631,3 +399,4 @@ export function ReportsContent({ profile }: ReportsContentProps) {
     </div>
   )
 }
+
