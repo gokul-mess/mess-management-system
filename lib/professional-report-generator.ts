@@ -1,3 +1,5 @@
+'use client'
+
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Chart, ChartConfiguration, registerables } from 'chart.js'
@@ -197,7 +199,6 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   // Calculate leave days/meals WITHIN the report period for statistics
   // Exclude days where student consumed any meal (integrity check)
   let leaveDaysInPeriod = 0
-  let leaveMealsInPeriod = 0
   
   // Also track past leave meals separately for skipped calculation
   let pastLeaveMeals = 0
@@ -235,7 +236,6 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
             // Only count as leave day if NO meal was consumed on that date
             if (!consumedDates.has(dateKey)) {
               leaveDaysInPeriod++
-              leaveMealsInPeriod += studentMealsPerDay
               
               // Also count past leave meals separately
               if (dateKey <= todayDateKey) {
@@ -289,7 +289,6 @@ export async function generateProfessionalReport(data: ReportData): Promise<void
   
   // Meals skipped = past expected meals - meals taken - past leave meals
   const mealsSkipped = Math.max(0, pastExpectedMeals - mealsTaken - pastLeaveMeals)
-  const approvedLeave = leaveDaysInPeriod
   
   // Attendance rate is calculated based on past expected meals to align with mealsTaken (past dates only)
   const attendanceRate = pastExpectedMeals > 0 ? ((mealsTaken / pastExpectedMeals) * 100).toFixed(1) : '0'
