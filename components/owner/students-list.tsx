@@ -27,7 +27,7 @@ import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 import { LoadingState } from '@/components/ui/loading-state'
 import { generateProfessionalReport } from '@/lib/professional-report-generator'
 import { generateAttendanceExcel } from '@/lib/excel-generator'
-import { MealPlanBadge } from '@/components/owner/verify-content'
+import { MealPlanBadge } from '@/components/shared/meal-plan-badge'
 import { FeePaymentStatus, getCurrentMonth, PAYMENT_SUCCESS_TIMEOUT, MAX_NOTE_LENGTH, MIN_AMOUNT, MAX_AMOUNT, type FeePayment } from '@/components/shared/fee-payment-status'
 import { 
   getMessPeriodDateRange, 
@@ -246,14 +246,13 @@ export function StudentsList() {
     
     // Fetch active mess period for the student
     try {
-      const { data: activePeriod } = await supabase
+      const { data: activePeriod, error: periodError } = await supabase
         .from('mess_periods')
         .select('start_date, end_date, original_end_date')
         .eq('user_id', student.id)
         .eq('is_active', true)
         .maybeSingle()
-      
-      setMessPeriod(activePeriod)
+      setMessPeriod(periodError ? null : activePeriod)
     } catch (err) {
       console.error('Error fetching mess period:', err)
       setMessPeriod(null)

@@ -18,7 +18,8 @@ export const MIN_AMOUNT = 1 as const
 export const MAX_AMOUNT = 99999 as const
 
 export function getCurrentMonth(): string {
-  return new Date().toISOString().slice(0, 7)
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
 interface FeePaymentStatusProps {
@@ -56,7 +57,7 @@ export function FeePaymentStatus({ payments, isLoading, error }: FeePaymentStatu
     )
   }
 
-  const total = payments.reduce((s, p) => s + p.amount, 0)
+  const total = payments.reduce((s, p) => s + Number(p.amount), 0)
 
   return (
     <div className="space-y-2">
@@ -67,7 +68,7 @@ export function FeePaymentStatus({ payments, isLoading, error }: FeePaymentStatu
         >
           <div>
             <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-              Installment {p.installment_number} — ₹{p.amount}
+              Installment {p.installment_number} — ₹{Number(p.amount)}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {p.payment_mode} · {new Date(p.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
