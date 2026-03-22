@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Clock,
@@ -12,9 +12,10 @@ import {
   LogOut,
   Hash,
   CreditCard,
-  XCircle,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { parseError } from '@/lib/error-handler'
+import { FeePaymentStatus, getCurrentMonth, type FeePayment } from '@/components/shared/fee-payment-status'
 
 interface ProfileContentProps {
   profile: {
@@ -34,40 +35,43 @@ interface ProfileContentProps {
   onSignOut: () => void
 }
 
-interface FeePayment {
-  payment_id: string
-  payment_month: string
-  installment_number: number
-  amount: number
-  payment_mode: 'UPI' | 'CASH'
-  paid_at: string
-  note?: string
-}
-
 export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
   const [feePayments, setFeePayments] = useState<FeePayment[]>([])
   const [paymentsLoading, setPaymentsLoading] = useState(true)
+  const [paymentsError, setPaymentsError] = useState<string | null>(null)
   const supabase = createClient()
-  const currentMonth = new Date().toISOString().slice(0, 7)
+  const currentMonth = getCurrentMonth()
+  const isMounted = useRef(true)
+
+  useEffect(() => {
+    isMounted.current = true
+    return () => { isMounted.current = false }
+  }, [])
 
   useEffect(() => {
     if (!profile?.id) return
     const fetchPayments = async () => {
       setPaymentsLoading(true)
-      const { data } = await supabase
+      setPaymentsError(null)
+      const { data, error: fetchErr } = await supabase
         .from('fee_payments')
         .select('*')
         .eq('user_id', profile.id)
         .eq('payment_month', currentMonth)
         .order('installment_number', { ascending: true })
-      setFeePayments(data || [])
+      if (!isMounted.current) return
+      if (fetchErr) {
+        setPaymentsError(parseError(fetchErr).message)
+      } else {
+        setFeePayments(data || [])
+      }
       setPaymentsLoading(false)
     }
     fetchPayments()
-  }, [profile?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [profile?.id, currentMonth, supabase])
 
   const daysRemaining = profile?.subscription_end_date
     ? Math.max(0, Math.ceil((new Date(profile.subscription_end_date).getTime() - Date.now()) / 86400000))
@@ -272,42 +276,12 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
                     {new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
                   </span>
                 </div>
-                <div className="p-4 space-y-3">
-                  {paymentsLoading ? (
-                    <div className="text-sm text-muted-foreground text-center py-2">Loading...</div>
-                  ) : feePayments.length === 0 ? (
-                    <div className="flex items-center gap-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                      <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                      <p className="text-sm font-medium text-red-700 dark:text-red-400">No payment recorded for this month</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {feePayments.map(p => (
-                        <div key={p.payment_id} className="flex items-center justify-between bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3">
-                          <div>
-                            <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-                              Installment {p.installment_number} — ₹{p.amount}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {p.payment_mode} · {new Date(p.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                              {p.note && ` · ${p.note}`}
-                            </p>
-                          </div>
-                          <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
-                        </div>
-                      ))}
-                      {feePayments.length >= 2 && (
-                        <div className="text-center text-xs font-semibold text-green-700 dark:text-green-400 pt-1">
-                          ✓ Fully Paid — Total ₹{feePayments.reduce((s, p) => s + p.amount, 0)}
-                        </div>
-                      )}
-                      {feePayments.length === 1 && (
-                        <div className="text-center text-xs text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg py-2">
-                          1 of 2 installments paid
-                        </div>
-                      )}
-                    </div>
-                  )}
+                <div className="p-4">
+                  <FeePaymentStatus
+                    payments={feePayments}
+                    isLoading={paymentsLoading}
+                    error={paymentsError}
+                  />
                 </div>
               </div>
             </div>

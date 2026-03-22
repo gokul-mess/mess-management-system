@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useReducer, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { 
@@ -28,12 +28,72 @@ import { LoadingState } from '@/components/ui/loading-state'
 import { generateProfessionalReport } from '@/lib/professional-report-generator'
 import { generateAttendanceExcel } from '@/lib/excel-generator'
 import { MealPlanBadge } from '@/components/owner/verify-content'
+import { FeePaymentStatus, getCurrentMonth, PAYMENT_SUCCESS_TIMEOUT, MAX_NOTE_LENGTH, MIN_AMOUNT, MAX_AMOUNT, type FeePayment } from '@/components/shared/fee-payment-status'
 import { 
   getMessPeriodDateRange, 
   getPeriodTypeLabel,
   type DateRangeType 
 } from '@/lib/mess-period-utils'
 import { fetchReportData, transformForPDFReport, transformForExcelReport } from '@/lib/report-data-fetcher'
+
+type PaymentMode = 'UPI' | 'CASH'
+
+interface FeePaymentState {
+  payments: FeePayment[]
+  isLoading: boolean
+  error: string | null
+  showForm: boolean
+  formInstallment: 1 | 2
+  formAmount: string
+  formMode: PaymentMode
+  formNote: string
+  isSaving: boolean
+  saveError: string | null
+  saveSuccess: boolean
+}
+
+const INITIAL_FEE_STATE: FeePaymentState = {
+  payments: [], isLoading: false, error: null,
+  showForm: false, formInstallment: 1, formAmount: '',
+  formMode: 'CASH', formNote: '', isSaving: false,
+  saveError: null, saveSuccess: false,
+}
+
+type FeeAction =
+  | { type: 'FETCH_START' }
+  | { type: 'FETCH_SUCCESS'; payments: FeePayment[] }
+  | { type: 'FETCH_ERROR'; error: string }
+  | { type: 'TOGGLE_FORM' }
+  | { type: 'CLOSE_FORM' }
+  | { type: 'SET_INSTALLMENT'; value: 1 | 2 }
+  | { type: 'SET_AMOUNT'; value: string }
+  | { type: 'SET_MODE'; value: PaymentMode }
+  | { type: 'SET_NOTE'; value: string }
+  | { type: 'SAVE_START' }
+  | { type: 'SAVE_SUCCESS'; payments: FeePayment[] }
+  | { type: 'SAVE_ERROR'; error: string }
+  | { type: 'CLEAR_SUCCESS' }
+  | { type: 'RESET' }
+
+function feeReducer(state: FeePaymentState, action: FeeAction): FeePaymentState {
+  switch (action.type) {
+    case 'FETCH_START': return { ...state, isLoading: true, error: null }
+    case 'FETCH_SUCCESS': return { ...state, isLoading: false, payments: action.payments }
+    case 'FETCH_ERROR': return { ...state, isLoading: false, error: action.error }
+    case 'TOGGLE_FORM': return { ...state, showForm: !state.showForm, saveError: null }
+    case 'CLOSE_FORM': return { ...state, showForm: false, saveError: null, formAmount: '', formNote: '', formInstallment: 1, formMode: 'CASH' }
+    case 'SET_INSTALLMENT': return { ...state, formInstallment: action.value }
+    case 'SET_AMOUNT': return { ...state, formAmount: action.value }
+    case 'SET_MODE': return { ...state, formMode: action.value }
+    case 'SET_NOTE': return { ...state, formNote: action.value.slice(0, MAX_NOTE_LENGTH) }
+    case 'SAVE_START': return { ...state, isSaving: true, saveError: null }
+    case 'SAVE_SUCCESS': return { ...state, isSaving: false, payments: action.payments, showForm: false, saveSuccess: true, formAmount: '', formNote: '', formInstallment: 1, formMode: 'CASH' }
+    case 'SAVE_ERROR': return { ...state, isSaving: false, saveError: action.error }
+    case 'CLEAR_SUCCESS': return { ...state, saveSuccess: false }
+    case 'RESET': return INITIAL_FEE_STATE
+    default: return state
+  }
+}
 
 interface Student {
   id: string
@@ -50,16 +110,6 @@ interface Student {
   editable_fields?: string[]
   permission_expires_at?: string
   created_at: string
-}
-
-interface FeePayment {
-  payment_id: string
-  payment_month: string
-  installment_number: number
-  amount: number
-  payment_mode: 'UPI' | 'CASH'
-  paid_at: string
-  note?: string
 }
 
 export function StudentsList() {
@@ -113,20 +163,10 @@ export function StudentsList() {
     original_end_date: string
   } | null>(null)
 
-  // Fee payment states
-  const [feePayments, setFeePayments] = useState<FeePayment[]>([])
-  const [isLoadingPayments, setIsLoadingPayments] = useState(false)
-  const [showAddPayment, setShowAddPayment] = useState(false)
-  const [paymentForm, setPaymentForm] = useState({
-    installment_number: 1 as 1 | 2,
-    amount: '',
-    payment_mode: 'CASH' as 'UPI' | 'CASH',
-    note: ''
-  })
-  const [paymentLoading, setPaymentLoading] = useState(false)
-  const [paymentError, setPaymentError] = useState<string | null>(null)
-  const [paymentSuccess, setPaymentSuccess] = useState(false)
-  const currentMonth = new Date().toISOString().slice(0, 7) // 'YYYY-MM'
+  // Fee payment state via reducer
+  const [fee, dispatchFee] = useReducer(feeReducer, INITIAL_FEE_STATE)
+  const feeSuccessTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const currentMonth = getCurrentMonth()
   
   // Permission form state
   const [permissionForm, setPermissionForm] = useState({
@@ -219,57 +259,71 @@ export function StudentsList() {
       setMessPeriod(null)
     }
 
-    // Fetch fee payments for current month
-    await fetchFeePayments(student.id)
-    
+    // Fetch fee payments and open modal
+    dispatchFee({ type: 'RESET' })
     setShowDetailModal(true)
+    fetchFeePayments(student.id)
   }
 
-  const fetchFeePayments = async (studentId: string) => {
-    setIsLoadingPayments(true)
-    try {
-      const { data } = await supabase
-        .from('fee_payments')
-        .select('*')
-        .eq('user_id', studentId)
-        .eq('payment_month', currentMonth)
-        .order('installment_number', { ascending: true })
-      setFeePayments(data || [])
-    } catch (err) {
-      console.error('Error fetching fee payments:', err)
-    } finally {
-      setIsLoadingPayments(false)
+  const fetchFeePayments = useCallback(async (studentId: string) => {
+    dispatchFee({ type: 'FETCH_START' })
+    const { data, error } = await supabase
+      .from('fee_payments')
+      .select('*')
+      .eq('user_id', studentId)
+      .eq('payment_month', currentMonth)
+      .order('installment_number', { ascending: true })
+    if (error) {
+      dispatchFee({ type: 'FETCH_ERROR', error: parseError(error).message })
+    } else {
+      dispatchFee({ type: 'FETCH_SUCCESS', payments: data || [] })
     }
-  }
+  }, [supabase, currentMonth])
 
   const handleAddPayment = async () => {
-    if (!selectedStudent || !paymentForm.amount) return
-    setPaymentLoading(true)
-    setPaymentError(null)
-    try {
-      const { error } = await supabase
-        .from('fee_payments')
-        .insert({
-          user_id: selectedStudent.id,
-          payment_month: currentMonth,
-          installment_number: paymentForm.installment_number,
-          amount: parseFloat(paymentForm.amount),
-          payment_mode: paymentForm.payment_mode,
-          note: paymentForm.note || null
-        })
-      if (error) throw error
-      setPaymentSuccess(true)
-      setShowAddPayment(false)
-      setPaymentForm({ installment_number: 1, amount: '', payment_mode: 'CASH', note: '' })
-      await fetchFeePayments(selectedStudent.id)
-      setTimeout(() => setPaymentSuccess(false), 3000)
-    } catch (err: unknown) {
-      const e = err as { message?: string }
-      setPaymentError(e?.message?.includes('unique') ? 'Installment already recorded for this month.' : (e?.message || 'Failed to save payment'))
-    } finally {
-      setPaymentLoading(false)
+    if (!selectedStudent) return
+
+    const amountNum = parseFloat(fee.formAmount)
+    const amountError = validateNumberRange(amountNum, MIN_AMOUNT, MAX_AMOUNT, 'Amount')
+    if (amountError) { dispatchFee({ type: 'SAVE_ERROR', error: amountError.message }); return }
+
+    dispatchFee({ type: 'SAVE_START' })
+    const { error } = await supabase
+      .from('fee_payments')
+      .insert({
+        user_id: selectedStudent.id,
+        payment_month: currentMonth,
+        installment_number: fee.formInstallment,
+        amount: amountNum,
+        payment_mode: fee.formMode,
+        note: fee.formNote || null,
+      })
+
+    if (error) {
+      const parsed = parseError(error)
+      dispatchFee({
+        type: 'SAVE_ERROR',
+        error: error.code === '23505' ? 'Installment already recorded for this month.' : parsed.message,
+      })
+      return
     }
+
+    const { data: updated } = await supabase
+      .from('fee_payments')
+      .select('*')
+      .eq('user_id', selectedStudent.id)
+      .eq('payment_month', currentMonth)
+      .order('installment_number', { ascending: true })
+
+    dispatchFee({ type: 'SAVE_SUCCESS', payments: updated || [] })
+
+    if (feeSuccessTimer.current) clearTimeout(feeSuccessTimer.current)
+    feeSuccessTimer.current = setTimeout(() => dispatchFee({ type: 'CLEAR_SUCCESS' }), PAYMENT_SUCCESS_TIMEOUT)
   }
+
+  useEffect(() => {
+    return () => { if (feeSuccessTimer.current) clearTimeout(feeSuccessTimer.current) }
+  }, [])
 
   const handleSaveStudentEdit = async () => {
     if (!selectedStudent) return
@@ -1249,7 +1303,8 @@ export function StudentsList() {
                         </span>
                       </div>
                       <button
-                        onClick={() => { setShowAddPayment(!showAddPayment); setPaymentError(null) }}
+                        onClick={() => dispatchFee({ type: 'TOGGLE_FORM' })}
+                        aria-label="Add payment"
                         className="flex items-center gap-1 text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
@@ -1267,46 +1322,23 @@ export function StudentsList() {
                         <MealPlanBadge plan={selectedStudent.meal_plan} />
                       </div>
 
-                      {/* Payment status */}
-                      {isLoadingPayments ? (
-                        <div className="text-sm text-muted-foreground text-center py-2">Loading...</div>
-                      ) : feePayments.length === 0 ? (
-                        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-center">
-                          <p className="text-sm font-semibold text-red-700 dark:text-red-400">No payment recorded this month</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {feePayments.map(p => (
-                            <div key={p.payment_id} className="flex items-center justify-between bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2">
-                              <div>
-                                <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-                                  Installment {p.installment_number} — ₹{p.amount}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {p.payment_mode} · {new Date(p.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                                  {p.note && ` · ${p.note}`}
-                                </p>
-                              </div>
-                              <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
-                            </div>
-                          ))}
-                          {feePayments.length === 2 && (
-                            <div className="text-center text-xs text-green-700 dark:text-green-400 font-semibold pt-1">
-                              ✓ Fully Paid — Total ₹{feePayments.reduce((s, p) => s + p.amount, 0)}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      {/* Payment status - shared component */}
+                      <FeePaymentStatus
+                        payments={fee.payments}
+                        isLoading={fee.isLoading}
+                        error={fee.error}
+                      />
 
                       {/* Add payment form */}
-                      {showAddPayment && (
+                      {fee.showForm && (
                         <div className="border border-border rounded-lg p-3 space-y-3 bg-muted/30 animate-in slide-in-from-top-2 duration-200">
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <label className="text-xs font-medium text-muted-foreground">Installment</label>
+                              <label htmlFor="installment-select" className="text-xs font-medium text-muted-foreground">Installment</label>
                               <select
-                                value={paymentForm.installment_number}
-                                onChange={e => setPaymentForm({ ...paymentForm, installment_number: Number(e.target.value) as 1 | 2 })}
+                                id="installment-select"
+                                value={fee.formInstallment}
+                                onChange={e => dispatchFee({ type: 'SET_INSTALLMENT', value: Number(e.target.value) as 1 | 2 })}
                                 className="w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                               >
                                 <option value={1}>1st</option>
@@ -1314,12 +1346,14 @@ export function StudentsList() {
                               </select>
                             </div>
                             <div>
-                              <label className="text-xs font-medium text-muted-foreground">Amount (₹)</label>
+                              <label htmlFor="amount-input" className="text-xs font-medium text-muted-foreground">Amount (₹)</label>
                               <input
+                                id="amount-input"
                                 type="number"
-                                min="1"
-                                value={paymentForm.amount}
-                                onChange={e => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                                min={MIN_AMOUNT}
+                                max={MAX_AMOUNT}
+                                value={fee.formAmount}
+                                onChange={e => dispatchFee({ type: 'SET_AMOUNT', value: e.target.value })}
                                 placeholder="e.g. 1500"
                                 className="w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                               />
@@ -1327,13 +1361,15 @@ export function StudentsList() {
                           </div>
                           <div>
                             <label className="text-xs font-medium text-muted-foreground">Mode</label>
-                            <div className="flex gap-2 mt-1">
+                            <div className="flex gap-2 mt-1" role="group" aria-label="Payment mode">
                               {(['CASH', 'UPI'] as const).map(mode => (
                                 <button
                                   key={mode}
-                                  onClick={() => setPaymentForm({ ...paymentForm, payment_mode: mode })}
+                                  type="button"
+                                  aria-pressed={fee.formMode === mode}
+                                  onClick={() => dispatchFee({ type: 'SET_MODE', value: mode })}
                                   className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
-                                    paymentForm.payment_mode === mode
+                                    fee.formMode === mode
                                       ? 'bg-primary text-primary-foreground border-primary'
                                       : 'border-input bg-background hover:bg-accent'
                                   }`}
@@ -1344,37 +1380,43 @@ export function StudentsList() {
                             </div>
                           </div>
                           <div>
-                            <label className="text-xs font-medium text-muted-foreground">Note (optional)</label>
+                            <label htmlFor="note-input" className="text-xs font-medium text-muted-foreground">
+                              Note (optional) — {fee.formNote.length}/{MAX_NOTE_LENGTH}
+                            </label>
                             <input
+                              id="note-input"
                               type="text"
-                              value={paymentForm.note}
-                              onChange={e => setPaymentForm({ ...paymentForm, note: e.target.value })}
+                              value={fee.formNote}
+                              onChange={e => dispatchFee({ type: 'SET_NOTE', value: e.target.value })}
                               placeholder="e.g. partial payment"
+                              maxLength={MAX_NOTE_LENGTH}
                               className="w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                             />
                           </div>
-                          {paymentError && (
-                            <p className="text-xs text-red-600 dark:text-red-400">{paymentError}</p>
+                          {fee.saveError && (
+                            <p className="text-xs text-red-600 dark:text-red-400">{fee.saveError}</p>
                           )}
                           <div className="flex gap-2">
                             <button
-                              onClick={() => { setShowAddPayment(false); setPaymentError(null) }}
+                              type="button"
+                              onClick={() => dispatchFee({ type: 'CLOSE_FORM' })}
                               className="flex-1 py-1.5 text-sm border border-input rounded hover:bg-accent transition-colors"
                             >
                               Cancel
                             </button>
                             <button
+                              type="button"
                               onClick={handleAddPayment}
-                              disabled={paymentLoading || !paymentForm.amount}
+                              disabled={fee.isSaving || !fee.formAmount}
                               className="flex-1 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 transition-colors"
                             >
-                              {paymentLoading ? 'Saving...' : 'Save'}
+                              {fee.isSaving ? 'Saving...' : 'Save'}
                             </button>
                           </div>
                         </div>
                       )}
 
-                      {paymentSuccess && (
+                      {fee.saveSuccess && (
                         <p className="text-xs text-green-600 dark:text-green-400 text-center">✓ Payment recorded successfully!</p>
                       )}
                     </div>
