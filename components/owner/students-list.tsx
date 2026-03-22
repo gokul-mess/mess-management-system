@@ -16,7 +16,10 @@ import {
   Calendar,
   TrendingUp,
   X,
-  FileText
+  FileText,
+  CreditCard,
+  Plus,
+  Utensils
 } from 'lucide-react'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
 import { validateRequired, validateNumberRange, parseError, ErrorResult } from '@/lib/error-handler'
@@ -24,6 +27,7 @@ import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 import { LoadingState } from '@/components/ui/loading-state'
 import { generateProfessionalReport } from '@/lib/professional-report-generator'
 import { generateAttendanceExcel } from '@/lib/excel-generator'
+import { MealPlanBadge } from '@/components/owner/verify-content'
 import { 
   getMessPeriodDateRange, 
   getPeriodTypeLabel,
@@ -46,6 +50,16 @@ interface Student {
   editable_fields?: string[]
   permission_expires_at?: string
   created_at: string
+}
+
+interface FeePayment {
+  payment_id: string
+  payment_month: string
+  installment_number: number
+  amount: number
+  payment_mode: 'UPI' | 'CASH'
+  paid_at: string
+  note?: string
 }
 
 export function StudentsList() {
@@ -98,6 +112,21 @@ export function StudentsList() {
     end_date: string
     original_end_date: string
   } | null>(null)
+
+  // Fee payment states
+  const [feePayments, setFeePayments] = useState<FeePayment[]>([])
+  const [isLoadingPayments, setIsLoadingPayments] = useState(false)
+  const [showAddPayment, setShowAddPayment] = useState(false)
+  const [paymentForm, setPaymentForm] = useState({
+    installment_number: 1 as 1 | 2,
+    amount: '',
+    payment_mode: 'CASH' as 'UPI' | 'CASH',
+    note: ''
+  })
+  const [paymentLoading, setPaymentLoading] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [paymentSuccess, setPaymentSuccess] = useState(false)
+  const currentMonth = new Date().toISOString().slice(0, 7) // 'YYYY-MM'
   
   // Permission form state
   const [permissionForm, setPermissionForm] = useState({
@@ -189,8 +218,57 @@ export function StudentsList() {
       console.error('Error fetching mess period:', err)
       setMessPeriod(null)
     }
+
+    // Fetch fee payments for current month
+    await fetchFeePayments(student.id)
     
     setShowDetailModal(true)
+  }
+
+  const fetchFeePayments = async (studentId: string) => {
+    setIsLoadingPayments(true)
+    try {
+      const { data } = await supabase
+        .from('fee_payments')
+        .select('*')
+        .eq('user_id', studentId)
+        .eq('payment_month', currentMonth)
+        .order('installment_number', { ascending: true })
+      setFeePayments(data || [])
+    } catch (err) {
+      console.error('Error fetching fee payments:', err)
+    } finally {
+      setIsLoadingPayments(false)
+    }
+  }
+
+  const handleAddPayment = async () => {
+    if (!selectedStudent || !paymentForm.amount) return
+    setPaymentLoading(true)
+    setPaymentError(null)
+    try {
+      const { error } = await supabase
+        .from('fee_payments')
+        .insert({
+          user_id: selectedStudent.id,
+          payment_month: currentMonth,
+          installment_number: paymentForm.installment_number,
+          amount: parseFloat(paymentForm.amount),
+          payment_mode: paymentForm.payment_mode,
+          note: paymentForm.note || null
+        })
+      if (error) throw error
+      setPaymentSuccess(true)
+      setShowAddPayment(false)
+      setPaymentForm({ installment_number: 1, amount: '', payment_mode: 'CASH', note: '' })
+      await fetchFeePayments(selectedStudent.id)
+      setTimeout(() => setPaymentSuccess(false), 3000)
+    } catch (err: unknown) {
+      const e = err as { message?: string }
+      setPaymentError(e?.message?.includes('unique') ? 'Installment already recorded for this month.' : (e?.message || 'Failed to save payment'))
+    } finally {
+      setPaymentLoading(false)
+    }
   }
 
   const handleSaveStudentEdit = async () => {
@@ -688,6 +766,7 @@ export function StudentsList() {
                       <SortIcon column="status" />
                     </div>
                   </th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold">Meal Plan</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold">Subscription</th>
                   <th 
                     className="px-6 py-4 text-left text-sm font-semibold cursor-pointer hover:bg-accent/50 transition-colors group"
@@ -771,6 +850,9 @@ export function StudentsList() {
                             Inactive
                           </span>
                         )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <MealPlanBadge plan={student.meal_plan} />
                       </td>
                       <td className="px-6 py-4">
                         {student.subscription_end_date ? (
@@ -1153,8 +1235,152 @@ export function StudentsList() {
                   </div>
                 </div>
 
-                {/* Right Column - Photo Permission */}
+                {/* Right Column */}
                 <div className="space-y-4">
+
+                  {/* Fee Payment Section */}
+                  <div className="border border-border rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between p-4 bg-gradient-to-r from-accent/50 to-transparent border-b border-border">
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="w-5 h-5 text-primary" />
+                        <h4 className="text-lg font-semibold">Fee Payment</h4>
+                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                          {new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => { setShowAddPayment(!showAddPayment); setPaymentError(null) }}
+                        className="flex items-center gap-1 text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add
+                      </button>
+                    </div>
+
+                    <div className="p-4 space-y-3">
+                      {/* Meal Plan */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Utensils className="w-4 h-4" />
+                          Meal Plan
+                        </div>
+                        <MealPlanBadge plan={selectedStudent.meal_plan} />
+                      </div>
+
+                      {/* Payment status */}
+                      {isLoadingPayments ? (
+                        <div className="text-sm text-muted-foreground text-center py-2">Loading...</div>
+                      ) : feePayments.length === 0 ? (
+                        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-center">
+                          <p className="text-sm font-semibold text-red-700 dark:text-red-400">No payment recorded this month</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {feePayments.map(p => (
+                            <div key={p.payment_id} className="flex items-center justify-between bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2">
+                              <div>
+                                <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+                                  Installment {p.installment_number} — ₹{p.amount}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {p.payment_mode} · {new Date(p.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                  {p.note && ` · ${p.note}`}
+                                </p>
+                              </div>
+                              <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+                            </div>
+                          ))}
+                          {feePayments.length === 2 && (
+                            <div className="text-center text-xs text-green-700 dark:text-green-400 font-semibold pt-1">
+                              ✓ Fully Paid — Total ₹{feePayments.reduce((s, p) => s + p.amount, 0)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Add payment form */}
+                      {showAddPayment && (
+                        <div className="border border-border rounded-lg p-3 space-y-3 bg-muted/30 animate-in slide-in-from-top-2 duration-200">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground">Installment</label>
+                              <select
+                                value={paymentForm.installment_number}
+                                onChange={e => setPaymentForm({ ...paymentForm, installment_number: Number(e.target.value) as 1 | 2 })}
+                                className="w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                              >
+                                <option value={1}>1st</option>
+                                <option value={2}>2nd</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground">Amount (₹)</label>
+                              <input
+                                type="number"
+                                min="1"
+                                value={paymentForm.amount}
+                                onChange={e => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                                placeholder="e.g. 1500"
+                                className="w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground">Mode</label>
+                            <div className="flex gap-2 mt-1">
+                              {(['CASH', 'UPI'] as const).map(mode => (
+                                <button
+                                  key={mode}
+                                  onClick={() => setPaymentForm({ ...paymentForm, payment_mode: mode })}
+                                  className={`flex-1 py-1.5 text-sm rounded border transition-colors ${
+                                    paymentForm.payment_mode === mode
+                                      ? 'bg-primary text-primary-foreground border-primary'
+                                      : 'border-input bg-background hover:bg-accent'
+                                  }`}
+                                >
+                                  {mode}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground">Note (optional)</label>
+                            <input
+                              type="text"
+                              value={paymentForm.note}
+                              onChange={e => setPaymentForm({ ...paymentForm, note: e.target.value })}
+                              placeholder="e.g. partial payment"
+                              className="w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                          </div>
+                          {paymentError && (
+                            <p className="text-xs text-red-600 dark:text-red-400">{paymentError}</p>
+                          )}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => { setShowAddPayment(false); setPaymentError(null) }}
+                              className="flex-1 py-1.5 text-sm border border-input rounded hover:bg-accent transition-colors"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={handleAddPayment}
+                              disabled={paymentLoading || !paymentForm.amount}
+                              className="flex-1 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                            >
+                              {paymentLoading ? 'Saving...' : 'Save'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {paymentSuccess && (
+                        <p className="text-xs text-green-600 dark:text-green-400 text-center">✓ Payment recorded successfully!</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Photo Permission */}
                   <div className="flex items-center gap-2 mb-4">
                     <Shield className="w-5 h-5 text-primary" />
                     <h4 className="text-lg font-semibold">Photo Permission</h4>
