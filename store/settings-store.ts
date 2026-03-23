@@ -10,8 +10,15 @@ interface MealSettings {
   dinnerPrice: number
 }
 
+export interface MealPlanPricingStore {
+  lunchOnlyPrice: number
+  dinnerOnlyPrice: number
+  bothMealsPrice: number
+}
+
 interface SettingsState {
   mealSettings: MealSettings
+  mealPlanPricing: MealPlanPricingStore
   theme: 'light' | 'dark' | 'system'
   notifications: {
     email: boolean
@@ -19,6 +26,7 @@ interface SettingsState {
     sms: boolean
   }
   setMealSettings: (settings: MealSettings) => void
+  setMealPlanPricing: (pricing: MealPlanPricingStore) => void
   setTheme: (theme: 'light' | 'dark' | 'system') => void
   setNotifications: (notifications: { email: boolean; push: boolean; sms: boolean }) => void
 }
@@ -34,6 +42,11 @@ export const useSettingsStore = create<SettingsState>()(
         lunchPrice: 50,
         dinnerPrice: 50,
       },
+      mealPlanPricing: {
+        lunchOnlyPrice: 1500,
+        dinnerOnlyPrice: 1500,
+        bothMealsPrice: 3000,
+      },
       theme: 'system',
       notifications: {
         email: true,
@@ -41,6 +54,7 @@ export const useSettingsStore = create<SettingsState>()(
         sms: false,
       },
       setMealSettings: (settings) => set({ mealSettings: settings }),
+      setMealPlanPricing: (pricing) => set({ mealPlanPricing: pricing }),
       setTheme: (theme) => set({ theme }),
       setNotifications: (notifications) => set({ notifications }),
     }),

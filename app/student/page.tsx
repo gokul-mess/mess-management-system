@@ -6,6 +6,7 @@ import { useDailyLogs } from '@/hooks/use-daily-logs'
 import { useAllLogs } from '@/hooks/use-all-logs'
 import { useUIStore } from '@/store/ui-store'
 import { useAuthStore } from '@/store/auth-store'
+import { createClient } from '@/lib/supabase/client'
 import { DashboardSidebar, MobileSidebar } from '@/components/shared/dashboard-sidebar'
 import { DashboardHeader } from '@/components/shared/dashboard-header'
 import { StudentDashboardContent } from '@/components/student/dashboard-content'
@@ -60,17 +61,35 @@ export default function StudentDashboard() {
   const [isPageLoading, setIsPageLoading] = useState(true)
   const [showNotifications, setShowNotifications] = useState(false)
   const [now] = useState(() => Date.now())
+  const [messEndDate, setMessEndDate] = useState<string | null>(null)
+  const [messActiveMealPlan, setMessActiveMealPlan] = useState<string | null>(null)
+
+  // Fetch active mess period end date and meal_plan — source of truth for subscription days
+  useEffect(() => {
+    if (!profile?.id) return
+    const supabase = createClient()
+    supabase
+      .from('mess_periods')
+      .select('end_date, meal_plan')
+      .eq('user_id', profile.id)
+      .eq('is_active', true)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.end_date) setMessEndDate(data.end_date)
+        if (data?.meal_plan) setMessActiveMealPlan(data.meal_plan)
+      })
+  }, [profile?.id])
 
   useEffect(() => {
     if (profile) setUser(profile)
   }, [profile, setUser])
 
-  // Build subscription-based notifications (pure derivation)
+  // Build subscription-based notifications using mess period end date
   const notifications = useMemo(() => {
     if (!profile?.id) return []
     const items: Array<{ type: string; title: string; message: string; time: string }> = []
-    const daysLeft = profile?.subscription_end_date
-      ? Math.max(0, Math.ceil((new Date(profile.subscription_end_date).getTime() - now) / 86400000))
+    const daysLeft = messEndDate
+      ? Math.max(0, Math.round((new Date(messEndDate).setHours(0,0,0,0) - new Date(new Date(now).toISOString().split('T')[0]).getTime()) / 86400000))
       : 0
 
     if (daysLeft > 0 && daysLeft <= 5) {
@@ -80,7 +99,7 @@ export default function StudentDashboard() {
         message: `Your subscription will expire in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}. Please renew to continue enjoying meals.`,
         time: 'Just now',
       })
-    } else if (daysLeft <= 0 && profile?.subscription_end_date) {
+    } else if (daysLeft <= 0 && messEndDate) {
       items.push({
         type: 'error',
         title: 'Subscription Expired',
@@ -89,7 +108,7 @@ export default function StudentDashboard() {
       })
     }
     return items
-  }, [profile, now])
+  }, [profile?.id, messEndDate, now])
 
   useEffect(() => {
     const timer = setTimeout(() => setIsPageLoading(false), 300)
@@ -104,8 +123,8 @@ export default function StudentDashboard() {
   const todayLogs = logs?.filter(log => log.date === today && log.user_id === profile?.id) || []
   const hasLunch = todayLogs.some(log => log.meal_type === 'LUNCH')
   const hasDinner = todayLogs.some(log => log.meal_type === 'DINNER')
-  const daysRemaining = profile?.subscription_end_date
-    ? Math.max(0, Math.ceil((new Date(profile.subscription_end_date).getTime() - now) / 86400000))
+  const daysRemaining = messEndDate
+    ? Math.max(0, Math.round((new Date(messEndDate).setHours(0,0,0,0) - new Date(new Date(now).toISOString().split('T')[0]).getTime()) / 86400000))
     : 0
   const totalMeals = allLogs?.length || 0
 
@@ -173,6 +192,7 @@ export default function StudentDashboard() {
                 totalMeals={totalMeals}
                 onNavigate={setActiveTab}
                 isLoading={profileLoading || logsLoading}
+                messActiveMealPlan={messActiveMealPlan}
               />
             )}
             {activeTab === 'parcel' && (

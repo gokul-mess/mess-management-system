@@ -1,0 +1,4 @@
+/** Shared application-level constants */
+
+/** The single row ID for the mess_settings table */
+export const SETTINGS_ID = '00000000-0000-0000-0000-000000000001' as const

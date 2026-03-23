@@ -26,9 +26,11 @@ interface FeePaymentStatusProps {
   payments: FeePayment[]
   isLoading: boolean
   error?: string | null
+  /** Total payable amount for the student's meal plan this month */
+  totalPayable?: number | null
 }
 
-export function FeePaymentStatus({ payments, isLoading, error }: FeePaymentStatusProps) {
+export function FeePaymentStatus({ payments, isLoading, error, totalPayable }: FeePaymentStatusProps) {
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -57,7 +59,9 @@ export function FeePaymentStatus({ payments, isLoading, error }: FeePaymentStatu
     )
   }
 
-  const total = payments.reduce((s, p) => s + Number(p.amount), 0)
+  const totalPaid = payments.reduce((s, p) => s + Number(p.amount), 0)
+  const remaining = totalPayable != null ? Math.max(0, totalPayable - totalPaid) : null
+  const isComplete = remaining === 0 || (totalPayable == null && payments.length >= 2)
 
   return (
     <div className="space-y-2">
@@ -68,7 +72,7 @@ export function FeePaymentStatus({ payments, isLoading, error }: FeePaymentStatu
         >
           <div>
             <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-              Installment {p.installment_number} — ₹{Number(p.amount)}
+              Installment {p.installment_number} — ₹{Number(p.amount).toLocaleString('en-IN')}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {p.payment_mode} · {new Date(p.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -79,15 +83,19 @@ export function FeePaymentStatus({ payments, isLoading, error }: FeePaymentStatu
         </div>
       ))}
 
-      {payments.length >= 2 && (
-        <p className="text-center text-xs font-semibold text-green-700 dark:text-green-400 pt-1">
-          ✓ Fully Paid — Total ₹{total}
+      {/* Summary */}
+      {isComplete ? (
+        <p className="text-center text-xs font-semibold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg py-2">
+          ✓ Payment Complete — Total ₹{totalPaid.toLocaleString('en-IN')}
+          {totalPayable != null && ` / ₹${totalPayable.toLocaleString('en-IN')}`}
         </p>
-      )}
-
-      {payments.length === 1 && (
+      ) : remaining != null && remaining > 0 ? (
+        <p className="text-center text-xs font-semibold text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg py-2">
+          Paid ₹{totalPaid.toLocaleString('en-IN')} — Remaining ₹{remaining.toLocaleString('en-IN')}
+        </p>
+      ) : (
         <p className="text-center text-xs text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg py-2">
-          1 of 2 installments paid
+          Paid ₹{totalPaid.toLocaleString('en-IN')} · {payments.length} installment{payments.length > 1 ? 's' : ''}
         </p>
       )}
     </div>

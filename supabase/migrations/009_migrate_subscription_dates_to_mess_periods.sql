@@ -100,8 +100,12 @@ DO $$
 BEGIN
   RAISE NOTICE '';
   RAISE NOTICE 'Removing deprecated subscription columns from users table...';
-  
-  -- Drop the columns (they were never populated via UI)
+
+  -- Drop the trigger that depends on subscription_end_date first
+  DROP TRIGGER IF EXISTS check_subscription_status ON public.users;
+  RAISE NOTICE '✅ Dropped check_subscription_status trigger';
+
+  -- Now safe to drop the columns
   ALTER TABLE public.users 
     DROP COLUMN IF EXISTS subscription_start_date,
     DROP COLUMN IF EXISTS subscription_end_date;

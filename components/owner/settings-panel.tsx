@@ -25,8 +25,8 @@ import {
 import { useAsyncOperation } from '@/hooks/use-error-handler'
 import { ErrorMessage, SuccessMessage } from '@/components/ui/error-message'
 import { MenuPhotoUpload } from './menu-photo-upload'
+import { SETTINGS_ID } from '@/lib/constants'
 
-const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'
 
 interface SettingsData {
   mealPricing: {
@@ -81,7 +81,7 @@ function ToggleSwitch({ checked, onChange, disabled = false }: { checked: boolea
 
 export function SettingsPanel() {
   // Zustand store
-  const { mealSettings, notifications: storeNotifications, setMealSettings, setNotifications } = useSettingsStore()
+  const { mealSettings, notifications: storeNotifications, mealPlanPricing, setMealSettings, setNotifications, setMealPlanPricing } = useSettingsStore()
   
   const [settings, setSettings] = useState<SettingsData>({
     mealPricing: {
@@ -89,9 +89,9 @@ export function SettingsPanel() {
       dinner: mealSettings.dinnerPrice
     },
     subscriptionPlans: {
-      monthlyLunchOnly: 1500,
-      monthlyDinnerOnly: 1500,
-      monthlyBothMeals: 3000
+      monthlyLunchOnly: mealPlanPricing.lunchOnlyPrice,
+      monthlyDinnerOnly: mealPlanPricing.dinnerOnlyPrice,
+      monthlyBothMeals: mealPlanPricing.bothMealsPrice
     },
     notifications: {
       emailAlerts: storeNotifications.email,
@@ -132,21 +132,26 @@ export function SettingsPanel() {
     if (user) {
       setSettings(prev => ({
         ...prev,
-        general: {
-          ...prev.general,
-          ownerEmail: user.email || ''
-        }
+        general: { ...prev.general, ownerEmail: user.email || '' }
       }))
     }
-    
-    const { data: menuSettings } = await supabase
+
+    const { data: dbSettings } = await supabase
       .from('mess_settings')
-      .select('menu_photo_url')
+      .select('menu_photo_url, lunch_price, dinner_price, both_price')
       .eq('id', SETTINGS_ID)
       .single()
-    
-    if (menuSettings?.menu_photo_url) {
-      setMenuPhotoUrl(menuSettings.menu_photo_url)
+
+    if (dbSettings) {
+      if (dbSettings.menu_photo_url) setMenuPhotoUrl(dbSettings.menu_photo_url)
+      setSettings(prev => ({
+        ...prev,
+        subscriptionPlans: {
+          monthlyLunchOnly: dbSettings.lunch_price ?? prev.subscriptionPlans.monthlyLunchOnly,
+          monthlyDinnerOnly: dbSettings.dinner_price ?? prev.subscriptionPlans.monthlyDinnerOnly,
+          monthlyBothMeals: dbSettings.both_price ?? prev.subscriptionPlans.monthlyBothMeals,
+        }
+      }))
     }
   }
 
@@ -211,7 +216,6 @@ export function SettingsPanel() {
     }
 
     await executeSave(async () => {
-      // Save to zustand store
       setMealSettings({
         lunchStartTime: settings.businessHours.lunchStart,
         lunchEndTime: settings.businessHours.lunchEnd,
@@ -220,15 +224,29 @@ export function SettingsPanel() {
         lunchPrice: settings.mealPricing.lunch,
         dinnerPrice: settings.mealPricing.dinner
       })
-      
+
       setNotifications({
         email: settings.notifications.emailAlerts,
         push: settings.notifications.leaveRequests,
         sms: false
       })
-      
-      // Simulate save operation
-      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      setMealPlanPricing({
+        lunchOnlyPrice: settings.subscriptionPlans.monthlyLunchOnly,
+        dinnerOnlyPrice: settings.subscriptionPlans.monthlyDinnerOnly,
+        bothMealsPrice: settings.subscriptionPlans.monthlyBothMeals,
+      })
+
+      // Persist meal plan pricing to DB
+      const { error: dbError } = await supabase
+        .from('mess_settings')
+        .update({
+          lunch_price: settings.subscriptionPlans.monthlyLunchOnly,
+          dinner_price: settings.subscriptionPlans.monthlyDinnerOnly,
+          both_price: settings.subscriptionPlans.monthlyBothMeals,
+        })
+        .eq('id', SETTINGS_ID)
+      if (dbError) throw dbError
     })
   }
 

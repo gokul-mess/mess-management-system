@@ -17,6 +17,7 @@ import type { HeaderTab } from '@/components/shared/dashboard-header'
 import { useUIStore } from '@/store/ui-store'
 import { useAuthStore } from '@/store/auth-store'
 import { useState, useEffect } from 'react'
+import { LeaveRequests } from '@/components/owner/leave-requests'
 import { 
   LayoutDashboard, 
   Users, 
@@ -26,6 +27,7 @@ import {
   UserCheck,
   Bell,
   UtensilsCrossed,
+  Calendar,
 } from 'lucide-react'
 import { signOut } from '@/app/auth/actions'
 
@@ -35,6 +37,7 @@ const OWNER_NAV_ITEMS: SidebarNavItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard', tab: 'dashboard' },
   { icon: Hash, label: 'Verify Meal', tab: 'verify' },
   { icon: Users, label: 'Students', tab: 'students' },
+  { icon: Calendar, label: 'Leave Requests', tab: 'leaves' },
   { icon: BarChart3, label: 'Analytics', tab: 'analytics' },
   { icon: UtensilsCrossed, label: 'Menu Photo', tab: 'menu' },
   { icon: Settings, label: 'Settings', tab: 'settings' },
@@ -45,6 +48,7 @@ const OWNER_HEADER_TABS: HeaderTab[] = [
   { tab: 'dashboard', icon: LayoutDashboard, label: 'Dashboard Overview', color: 'text-blue-600 dark:text-blue-400' },
   { tab: 'verify', icon: Hash, label: 'Verify Meal', color: 'text-green-600 dark:text-green-400' },
   { tab: 'students', icon: Users, label: 'Student Management', color: 'text-purple-600 dark:text-purple-400' },
+  { tab: 'leaves', icon: Calendar, label: 'Leave Requests', color: 'text-yellow-600 dark:text-yellow-400' },
   { tab: 'analytics', icon: BarChart3, label: 'Analytics & Reports', color: 'text-orange-600 dark:text-orange-400' },
   { tab: 'menu', icon: UtensilsCrossed, label: 'Menu Photo', color: 'text-amber-600 dark:text-amber-400' },
   { tab: 'settings', icon: Settings, label: 'Settings', color: 'text-gray-600 dark:text-gray-400' },
@@ -129,6 +133,7 @@ export default function OwnerDashboard() {
           )}
           {activeTab === 'verify' && <VerifyContent />}
           {activeTab === 'students' && <StudentsList />}
+          {activeTab === 'leaves' && <LeaveRequests />}
           {activeTab === 'analytics' && <AnalyticsDashboard />}
           {activeTab === 'menu' && <MenuPhotoPage />}
           {activeTab === 'settings' && <SettingsPanel />}

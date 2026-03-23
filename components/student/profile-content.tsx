@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Clock,
@@ -16,6 +16,9 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { parseError } from '@/lib/error-handler'
 import { FeePaymentStatus, getCurrentMonth, type FeePayment } from '@/components/shared/fee-payment-status'
+import { MessCycleTracker } from '@/components/shared/mess-cycle-tracker'
+import { getPayableAmount, getEffectivePayable, DEFAULT_PRICING, type MealPlanPricing } from '@/lib/pricing-utils'
+import { SETTINGS_ID } from '@/lib/constants'
 
 interface ProfileContentProps {
   profile: {
@@ -42,7 +45,10 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
   const [feePayments, setFeePayments] = useState<FeePayment[]>([])
   const [paymentsLoading, setPaymentsLoading] = useState(true)
   const [paymentsError, setPaymentsError] = useState<string | null>(null)
-  const supabase = createClient()
+  const [pricing, setPricing] = useState<MealPlanPricing>(DEFAULT_PRICING)
+  const [messPeriod, setMessPeriod] = useState<{ start_date: string; end_date: string } | null>(null)
+  const [leaveDays, setLeaveDays] = useState(0)
+  const supabase = useMemo(() => createClient(), [])
   const currentMonth = getCurrentMonth()
   const isMounted = useRef(true)
 
@@ -73,8 +79,58 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
     fetchPayments()
   }, [profile?.id, currentMonth, supabase])
 
-  const daysRemaining = profile?.subscription_end_date
-    ? Math.max(0, Math.ceil((new Date(profile.subscription_end_date).getTime() - Date.now()) / 86400000))
+  // Fetch pricing, active mess period, and approved leave days
+  useEffect(() => {
+    if (!profile?.id) return
+    Promise.all([
+      supabase
+        .from('mess_settings')
+        .select('lunch_price, dinner_price, both_price')
+        .eq('id', SETTINGS_ID)
+        .single(),
+      supabase
+        .from('mess_periods')
+        .select('start_date, end_date')
+        .eq('user_id', profile.id)
+        .eq('is_active', true)
+        .maybeSingle(),
+    ]).then(async ([{ data: ps }, { data: mp }]) => {
+      if (!isMounted.current) return
+      if (ps) {
+        setPricing({
+          lunch_price: ps.lunch_price ?? DEFAULT_PRICING.lunch_price,
+          dinner_price: ps.dinner_price ?? DEFAULT_PRICING.dinner_price,
+          both_price: ps.both_price ?? DEFAULT_PRICING.both_price,
+        })
+      }
+      if (mp?.start_date && mp?.end_date) {
+        setMessPeriod({ start_date: mp.start_date, end_date: mp.end_date })
+        // Fetch approved leave days within this mess period
+        const { data: leaves } = await supabase
+          .from('leaves')
+          .select('start_date, end_date')
+          .eq('user_id', profile.id)
+          .eq('is_approved', true)
+          .gte('end_date', mp.start_date)
+          .lte('start_date', mp.end_date)
+        if (!isMounted.current) return
+        if (leaves && leaves.length > 0) {
+          let days = 0
+          for (const l of leaves) {
+            const s = new Date(Math.max(new Date(l.start_date).getTime(), new Date(mp.start_date).getTime()))
+            const e = new Date(Math.min(new Date(l.end_date).getTime(), new Date(mp.end_date).getTime()))
+            days += Math.max(0, Math.round((e.getTime() - s.getTime()) / 86400000) + 1)
+          }
+          setLeaveDays(days)
+        }
+      }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id])
+
+  // Derive days remaining from mess_periods end_date (not the dropped subscription_end_date column)
+  const daysRemaining = messPeriod?.end_date
+    ? Math.max(0, Math.ceil((new Date(messPeriod.end_date).getTime() - Date.now()) / 86400000))
     : 0
 
   const canUpdatePhoto = profile?.photo_update_allowed &&
@@ -270,19 +326,37 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">Fee Payment</label>
               <div className="rounded-xl border border-border overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-3 bg-accent/50 border-b border-border">
-                  <CreditCard className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-semibold">
-                    {new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
-                  </span>
+                <div className="flex items-center justify-between px-4 py-3 bg-accent/50 border-b border-border">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-semibold">
+                      {messPeriod
+                        ? `${new Date(messPeriod.start_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${new Date(messPeriod.end_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                        : new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+                    </span>
+                  </div>
+                  {leaveDays > 0 && (
+                    <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded-full">
+                      {leaveDays}d leave deducted
+                    </span>
+                  )}
                 </div>
                 <div className="p-4">
                   <FeePaymentStatus
                     payments={feePayments}
                     isLoading={paymentsLoading}
                     error={paymentsError}
+                    totalPayable={getEffectivePayable(profile?.meal_plan, pricing, leaveDays)}
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Mess Cycle Tracker */}
+            <div>
+              <label className="block text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">30-Day Mess Cycle</label>
+              <div className="p-4 bg-accent/50 rounded-xl border border-border">
+                <MessCycleTracker startDate={messPeriod?.start_date ?? null} />
               </div>
             </div>
 

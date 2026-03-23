@@ -192,7 +192,19 @@ export function LeaveContent({ profile }: LeaveContentProps) {
                     <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
                       <Clock className="w-5 h-5 text-white" />
                     </div>
-                    <span className="text-sm font-medium text-muted-foreground">Leave Duration</span>
+                    <div>
+                      <span className="text-sm font-medium text-muted-foreground">Leave Duration</span>
+                      {calculateDays() < 3 && (
+                        <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-0.5">
+                          Min. 3 days needed to extend subscription
+                        </p>
+                      )}
+                      {calculateDays() >= 3 && (
+                        <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
+                          Will extend your subscription by {calculateDays()} days if approved
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <span className="text-3xl font-bold text-primary">
                     {calculateDays()} {calculateDays() === 1 ? 'day' : 'days'}

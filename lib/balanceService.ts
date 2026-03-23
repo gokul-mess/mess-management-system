@@ -4,84 +4,85 @@ import type { BalanceDaysInput } from '@/lib/balance'
 /**
  * Fetches all data needed to compute balance days for a given student.
  *
- * - total_days  : derived from current active mess_period (start_date & end_date)
- * - consumed_days: count of daily_logs rows where status = 'CONSUMED' for this user
- * - leave_days  : sum of approved leave durations from leaves table (is_approved = true)
+ * Key design decisions:
+ * - totalDays is ALWAYS 30 (the base subscription length), derived from
+ *   original_end_date, NOT end_date. end_date can be extended by approved
+ *   leaves, but the usable mess days never exceed 30.
+ * - consumedDays = meals with status CONSUMED within the base 30-day window.
+ * - leaveDays = approved leave days overlapping the base 30-day window.
+ * - balanceDays = 30 - consumedDays - leaveDays  (see lib/balance.ts)
+ *   Leave days are excluded from balance because the student is absent —
+ *   they neither consume nor have those days available.
+ * - daysRemaining (calendar) is computed in the page from end_date (which
+ *   includes leave extensions) and is a separate concept from balanceDays.
  */
 export async function fetchBalanceDaysData(userId: string): Promise<BalanceDaysInput> {
   const supabase = createClient()
 
-  // First, get the current active mess period
+  // Get the active mess period — use is_active = true as single source of truth
   const { data: messPeriod, error: messPeriodError } = await supabase
     .from('mess_periods')
-    .select('start_date, end_date')
+    .select('start_date, end_date, original_end_date')
     .eq('user_id', userId)
-    .gte('end_date', new Date().toISOString().split('T')[0]) // Active period (end_date >= today)
-    .order('start_date', { ascending: false })
-    .limit(1)
+    .eq('is_active', true)
     .maybeSingle()
 
   if (messPeriodError) throw messPeriodError
 
-  // If no active mess period, return zeros
-  if (!messPeriod?.start_date || !messPeriod?.end_date) {
+  if (!messPeriod?.start_date) {
     return { totalDays: null, consumedDays: 0, leaveDays: 0 }
   }
 
   const periodStart = messPeriod.start_date
-  const periodEnd = messPeriod.end_date
+  // Use original_end_date for the 30-day base window.
+  // Fall back to end_date only if original_end_date is missing (legacy data).
+  const baseEnd = messPeriod.original_end_date ?? messPeriod.end_date
 
-  // Run queries in parallel, filtered to current mess period date range
+  if (!baseEnd) {
+    return { totalDays: null, consumedDays: 0, leaveDays: 0 }
+  }
+
+  // Run both queries in parallel, scoped to the base 30-day window
   const [logsResult, leavesResult] = await Promise.all([
-    // Count meals with status CONSUMED within the current mess period
     supabase
       .from('daily_logs')
       .select('log_id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('status', 'CONSUMED')
       .gte('date', periodStart)
-      .lte('date', periodEnd),
+      .lte('date', baseEnd),
 
-    // Get approved leaves that overlap with the current mess period
     supabase
       .from('leaves')
       .select('start_date, end_date')
       .eq('user_id', userId)
       .eq('is_approved', true)
-      .lte('start_date', periodEnd)
+      .lte('start_date', baseEnd)
       .gte('end_date', periodStart),
   ])
 
   if (logsResult.error) throw logsResult.error
   if (leavesResult.error) throw leavesResult.error
 
-  // Calculate total_days from current active mess period
+  // totalDays = base 30-day window (inclusive)
   const start = new Date(periodStart)
-  const end = new Date(periodEnd)
-  const diffMs = end.getTime() - start.getTime()
-  const totalDays = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1)
+  const end = new Date(baseEnd)
+  const totalDays = Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000) + 1)
 
-  // consumed_days = exact count from Supabase (already filtered to period)
   const consumedDays = logsResult.count ?? 0
 
-  // leave_days = sum of leave days that fall within the current mess period
+  // leaveDays = approved leave days that fall within the base 30-day window
   const periodStartDate = new Date(periodStart)
-  const periodEndDate = new Date(periodEnd)
-  
+  const periodEndDate = new Date(baseEnd)
+
   const leaveDays = (leavesResult.data ?? []).reduce((sum, leave) => {
     const leaveStart = new Date(leave.start_date)
     const leaveEnd = new Date(leave.end_date)
-    
-    // Calculate the overlap between leave and mess period
     const overlapStart = leaveStart > periodStartDate ? leaveStart : periodStartDate
     const overlapEnd = leaveEnd < periodEndDate ? leaveEnd : periodEndDate
-    
-    // Only count if there's actual overlap
     if (overlapStart <= overlapEnd) {
-      const days = Math.max(0, Math.ceil((overlapEnd.getTime() - overlapStart.getTime()) / (1000 * 60 * 60 * 24)) + 1)
-      return sum + days
+      return sum + Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1
     }
-    
     return sum
   }, 0)
 
