@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Calendar, CheckCircle, XCircle, Clock, User, AlertCircle } from 'lucide-react'
 
+// Minimum leave days required to trigger a subscription extension
+const MIN_DAYS_FOR_EXTENSION = 4
+
 interface LeaveRequest {
   leave_id: string
   user_id: string
@@ -14,6 +17,19 @@ interface LeaveRequest {
   student_name: string
   student_short_id: number
   days: number
+}
+
+/** Parse a YYYY-MM-DD date string as local midnight — avoids timezone shifts */
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+/** Inclusive day count between two YYYY-MM-DD strings, timezone-safe */
+function countDays(startStr: string, endStr: string): number {
+  const start = parseLocalDate(startStr)
+  const end = parseLocalDate(endStr)
+  return Math.round((end.getTime() - start.getTime()) / 86400000) + 1
 }
 
 export function LeaveRequests() {
@@ -35,22 +51,17 @@ export function LeaveRequests() {
 
       if (fetchError) throw fetchError
 
-      const mapped: LeaveRequest[] = (data || []).map((r) => {
-        const start = new Date(r.start_date)
-        const end = new Date(r.end_date)
-        const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1
-        return {
-          leave_id: r.leave_id,
-          user_id: r.user_id,
-          start_date: r.start_date,
-          end_date: r.end_date,
-          is_approved: r.is_approved,
-          created_at: r.created_at,
-          student_name: (r.users as { full_name: string; unique_short_id: number })?.full_name ?? 'Unknown',
-          student_short_id: (r.users as { full_name: string; unique_short_id: number })?.unique_short_id ?? 0,
-          days,
-        }
-      })
+      const mapped: LeaveRequest[] = (data || []).map((r) => ({
+        leave_id: r.leave_id,
+        user_id: r.user_id,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        is_approved: r.is_approved,
+        created_at: r.created_at,
+        student_name: (r.users as { full_name: string; unique_short_id: number })?.full_name ?? 'Unknown',
+        student_short_id: (r.users as { full_name: string; unique_short_id: number })?.unique_short_id ?? 0,
+        days: countDays(r.start_date, r.end_date),
+      }))
       setRequests(mapped)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load leave requests')
@@ -63,7 +74,10 @@ export function LeaveRequests() {
 
   /**
    * Approve a leave request.
-   * Rule: only extend mess_periods.end_date if leave duration >= 3 days.
+   *
+   * Business rule: extend mess_periods.end_date only if leave >= 4 days.
+   * Uses the atomic DB function `extend_mess_period` to prevent race conditions
+   * when two approvals happen simultaneously.
    */
   const handleApprove = async (req: LeaveRequest) => {
     setProcessingId(req.leave_id)
@@ -76,28 +90,13 @@ export function LeaveRequests() {
         .eq('leave_id', req.leave_id)
       if (approveError) throw approveError
 
-      // 2. Extend mess period end_date only if leave >= 3 days
-      if (req.days >= 3) {
-        const { data: period, error: periodError } = await supabase
-          .from('mess_periods')
-          .select('end_date')
-          .eq('user_id', req.user_id)
-          .eq('is_active', true)
-          .maybeSingle()
-        if (periodError) throw periodError
-
-        if (period?.end_date) {
-          const newEnd = new Date(period.end_date)
-          newEnd.setDate(newEnd.getDate() + req.days)
-          const newEndStr = newEnd.toISOString().split('T')[0]
-
-          const { error: updateError } = await supabase
-            .from('mess_periods')
-            .update({ end_date: newEndStr })
-            .eq('user_id', req.user_id)
-            .eq('is_active', true)
-          if (updateError) throw updateError
-        }
+      // 2. Extend subscription atomically — only if leave >= 4 days
+      if (req.days >= MIN_DAYS_FOR_EXTENSION) {
+        const { error: rpcError } = await supabase.rpc('extend_mess_period', {
+          p_user_id: req.user_id,
+          p_days: req.days,
+        })
+        if (rpcError) throw new Error(`Failed to extend subscription: ${rpcError.message}`)
       }
 
       await fetchRequests()
@@ -155,14 +154,25 @@ export function LeaveRequests() {
       <div className="flex items-start gap-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
         <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
         <p className="text-sm text-blue-700 dark:text-blue-300">
-          Leave requests with <span className="font-semibold">3 or more days</span> will automatically extend the student&apos;s subscription end date upon approval.
+          Leave requests with <span className="font-semibold">{MIN_DAYS_FOR_EXTENSION} or more days</span> will automatically extend the student&apos;s subscription end date upon approval.
         </p>
       </div>
 
+      {/* Error display */}
       {error && (
-        <div className="flex items-center gap-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
-          <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0" />
-          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+        <div className="flex items-start gap-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
+          <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">Action failed</p>
+            <p className="text-sm text-red-600 dark:text-red-400 mt-0.5">{error}</p>
+          </div>
+          <button
+            onClick={() => setError(null)}
+            className="ml-auto text-red-400 hover:text-red-600 transition-colors"
+            aria-label="Dismiss error"
+          >
+            <XCircle className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -178,7 +188,9 @@ export function LeaveRequests() {
                 : 'bg-white dark:bg-zinc-900 border border-border hover:bg-accent'
             }`}
           >
-            {f === 'pending' ? `Pending${pendingCount > 0 ? ` (${pendingCount})` : ''}` : f === 'approved' ? 'Approved' : 'All'}
+            {f === 'pending'
+              ? `Pending${pendingCount > 0 ? ` (${pendingCount})` : ''}`
+              : f === 'approved' ? 'Approved' : 'All'}
           </button>
         ))}
       </div>
@@ -193,7 +205,9 @@ export function LeaveRequests() {
         ) : filtered.length === 0 ? (
           <div className="p-16 text-center">
             <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-40" />
-            <p className="text-muted-foreground font-medium">No {filter === 'all' ? '' : filter} leave requests</p>
+            <p className="text-muted-foreground font-medium">
+              No {filter === 'all' ? '' : filter} leave requests
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -223,16 +237,20 @@ export function LeaveRequests() {
                         </span>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {new Date(req.start_date).toLocaleDateString('en-IN')} &rarr; {new Date(req.end_date).toLocaleDateString('en-IN')}
+                        {parseLocalDate(req.start_date).toLocaleDateString('en-IN')}
+                        {' → '}
+                        {parseLocalDate(req.end_date).toLocaleDateString('en-IN')}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                          req.days >= 3
+                          req.days >= MIN_DAYS_FOR_EXTENSION
                             ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300'
                             : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
                         }`}>
                           {req.days} {req.days === 1 ? 'day' : 'days'}
-                          {req.days >= 3 ? ' · will extend subscription' : ' · no extension'}
+                          {req.days >= MIN_DAYS_FOR_EXTENSION
+                            ? ' · will extend subscription'
+                            : ' · no extension'}
                         </span>
                       </div>
                     </div>

@@ -53,14 +53,16 @@ export function LeaveContent({ profile }: LeaveContentProps) {
 
   const validateForm = (): string | null => {
     if (!startDate || !endDate) return 'Please select both start and end dates'
-    const start = new Date(startDate)
-    const end = new Date(endDate)
+    const [sy, sm, sd] = startDate.split('-').map(Number)
+    const [ey, em, ed] = endDate.split('-').map(Number)
+    const start = new Date(sy, sm - 1, sd)
+    const end = new Date(ey, em - 1, ed)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
+    if (end < start) return 'End date must be on or after start date'
     if (start < today) return 'Start date cannot be in the past'
-    if (end < start) return 'End date must be after start date'
-    const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-    if (daysDiff > 30) return 'Leave duration cannot exceed 30 days'
+    const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1
+    if (days > 30) return 'Leave duration cannot exceed 30 days'
     return null
   }
 
@@ -103,7 +105,12 @@ export function LeaveContent({ profile }: LeaveContentProps) {
 
   const calculateDays = () => {
     if (!startDate || !endDate) return 0
-    return Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1
+    const [sy, sm, sd] = startDate.split('-').map(Number)
+    const [ey, em, ed] = endDate.split('-').map(Number)
+    const start = new Date(sy, sm - 1, sd)
+    const end = new Date(ey, em - 1, ed)
+    if (end < start) return 0
+    return Math.round((end.getTime() - start.getTime()) / 86400000) + 1
   }
 
   return (
@@ -194,12 +201,12 @@ export function LeaveContent({ profile }: LeaveContentProps) {
                     </div>
                     <div>
                       <span className="text-sm font-medium text-muted-foreground">Leave Duration</span>
-                      {calculateDays() < 3 && (
+                      {calculateDays() < 4 && (
                         <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-0.5">
-                          Min. 3 days needed to extend subscription
+                          Min. 4 days needed to extend subscription
                         </p>
                       )}
-                      {calculateDays() >= 3 && (
+                      {calculateDays() >= 4 && (
                         <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
                           Will extend your subscription by {calculateDays()} days if approved
                         </p>
@@ -280,7 +287,12 @@ export function LeaveContent({ profile }: LeaveContentProps) {
                         {new Date(leave.start_date).toLocaleDateString('en-IN')} - {new Date(leave.end_date).toLocaleDateString('en-IN')}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {Math.ceil((new Date(leave.end_date).getTime() - new Date(leave.start_date).getTime()) / (1000 * 60 * 60 * 24)) + 1} days
+                        {(() => {
+                          const [sy, sm, sd] = leave.start_date.split('-').map(Number)
+                          const [ey, em, ed] = leave.end_date.split('-').map(Number)
+                          const d = Math.round((new Date(ey, em-1, ed).getTime() - new Date(sy, sm-1, sd).getTime()) / 86400000) + 1
+                          return `${d} ${d === 1 ? 'day' : 'days'}`
+                        })()}
                       </p>
                     </div>
                   </div>

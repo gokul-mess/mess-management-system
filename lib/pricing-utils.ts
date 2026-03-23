@@ -54,7 +54,8 @@ export function computeMessCycle(startDateStr: string): MessCycle {
   const [y, m, d] = datePart.split('-').map(Number)
   const startDate = new Date(y, m - 1, d)
   const endDate = new Date(startDate)
-  endDate.setDate(endDate.getDate() + 30)
+  // +29 gives exactly 30 inclusive days (start day counts as day 1)
+  endDate.setDate(endDate.getDate() + 29)
 
   const now = new Date()
   const totalDays = 30
