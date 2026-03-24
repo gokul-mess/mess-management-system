@@ -17,7 +17,7 @@ import { createClient } from '@/lib/supabase/client'
 import { parseError } from '@/lib/error-handler'
 import { FeePaymentStatus, getCurrentMonth, type FeePayment } from '@/components/shared/fee-payment-status'
 import { MessCycleTracker } from '@/components/shared/mess-cycle-tracker'
-import { getPayableAmount, getEffectivePayable, DEFAULT_PRICING, type MealPlanPricing } from '@/lib/pricing-utils'
+import { getPayableAmount, DEFAULT_PRICING, type MealPlanPricing } from '@/lib/pricing-utils'
 import { SETTINGS_ID } from '@/lib/constants'
 
 interface ProfileContentProps {
@@ -46,8 +46,7 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
   const [paymentsLoading, setPaymentsLoading] = useState(true)
   const [paymentsError, setPaymentsError] = useState<string | null>(null)
   const [pricing, setPricing] = useState<MealPlanPricing>(DEFAULT_PRICING)
-  const [messPeriod, setMessPeriod] = useState<{ start_date: string; end_date: string } | null>(null)
-  const [leaveDays, setLeaveDays] = useState(0)
+  const [messPeriod, setMessPeriod] = useState<{ start_date: string; end_date: string; meal_plan?: string | null } | null>(null)
   const supabase = useMemo(() => createClient(), [])
   const currentMonth = getCurrentMonth()
   const isMounted = useRef(true)
@@ -90,7 +89,7 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
         .single(),
       supabase
         .from('mess_periods')
-        .select('start_date, end_date')
+        .select('start_date, end_date, meal_plan')
         .eq('user_id', profile.id)
         .eq('is_active', true)
         .maybeSingle(),
@@ -104,33 +103,22 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
         })
       }
       if (mp?.start_date && mp?.end_date) {
-        setMessPeriod({ start_date: mp.start_date, end_date: mp.end_date })
-        // Fetch approved leave days within this mess period
-        const { data: leaves } = await supabase
-          .from('leaves')
-          .select('start_date, end_date')
-          .eq('user_id', profile.id)
-          .eq('is_approved', true)
-          .gte('end_date', mp.start_date)
-          .lte('start_date', mp.end_date)
-        if (!isMounted.current) return
-        if (leaves && leaves.length > 0) {
-          let days = 0
-          for (const l of leaves) {
-            const s = new Date(Math.max(new Date(l.start_date).getTime(), new Date(mp.start_date).getTime()))
-            const e = new Date(Math.min(new Date(l.end_date).getTime(), new Date(mp.end_date).getTime()))
-            days += Math.max(0, Math.round((e.getTime() - s.getTime()) / 86400000) + 1)
-          }
-          setLeaveDays(days)
-        }
+        setMessPeriod({ start_date: mp.start_date, end_date: mp.end_date, meal_plan: mp.meal_plan ?? null })
       }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.id])
 
-  // Derive days remaining from mess_periods end_date (not the dropped subscription_end_date column)
+  // Derive days remaining from mess_periods end_date — local date, Math.round (timezone-safe)
   const daysRemaining = messPeriod?.end_date
-    ? Math.max(0, Math.ceil((new Date(messPeriod.end_date).getTime() - Date.now()) / 86400000))
+    ? (() => {
+        const [y, m, d] = messPeriod.end_date.split('-').map(Number)
+        const endMidnight = new Date(y, m - 1, d).getTime()
+        const todayStr = new Date().toISOString().split('T')[0]
+        const [ty, tm, td] = todayStr.split('-').map(Number)
+        const todayMidnight = new Date(ty, tm - 1, td).getTime()
+        return Math.max(0, Math.round((endMidnight - todayMidnight) / 86400000))
+      })()
     : 0
 
   const canUpdatePhoto = profile?.photo_update_allowed &&
@@ -314,9 +302,13 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
                 <div className="flex items-center gap-2">
                   <Utensils className="w-5 h-5 text-primary" />
                   <p className="font-semibold text-foreground">
-                    {profile?.meal_plan === 'DL' ? 'Lunch & Dinner' :
-                     profile?.meal_plan === 'L' ? 'Lunch Only' :
-                     profile?.meal_plan === 'D' ? 'Dinner Only' : 'Not set'}
+                    {(() => {
+                      const plan = messPeriod?.meal_plan ?? profile?.meal_plan
+                      if (plan === 'DL') return 'Lunch & Dinner'
+                      if (plan === 'L') return 'Lunch Only'
+                      if (plan === 'D') return 'Dinner Only'
+                      return 'Not set'
+                    })()}
                   </p>
                 </div>
               </div>
@@ -326,7 +318,7 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">Fee Payment</label>
               <div className="rounded-xl border border-border overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 bg-accent/50 border-b border-border">
+                <div className="flex items-center px-4 py-3 bg-accent/50 border-b border-border">
                   <div className="flex items-center gap-2">
                     <CreditCard className="w-4 h-4 text-primary" />
                     <span className="text-sm font-semibold">
@@ -335,18 +327,13 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
                         : new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
                     </span>
                   </div>
-                  {leaveDays > 0 && (
-                    <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded-full">
-                      {leaveDays}d leave deducted
-                    </span>
-                  )}
                 </div>
                 <div className="p-4">
                   <FeePaymentStatus
                     payments={feePayments}
                     isLoading={paymentsLoading}
                     error={paymentsError}
-                    totalPayable={getEffectivePayable(profile?.meal_plan, pricing, leaveDays)}
+                    totalPayable={getPayableAmount(messPeriod?.meal_plan ?? profile?.meal_plan, pricing)}
                   />
                 </div>
               </div>

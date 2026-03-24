@@ -30,7 +30,7 @@ import { generateAttendanceExcel } from '@/lib/excel-generator'
 import { MealPlanBadge } from '@/components/shared/meal-plan-badge'
 import { FeePaymentStatus, getCurrentMonth, PAYMENT_SUCCESS_TIMEOUT, MAX_NOTE_LENGTH, MIN_AMOUNT, MAX_AMOUNT, type FeePayment } from '@/components/shared/fee-payment-status'
 import { MessCycleTracker } from '@/components/shared/mess-cycle-tracker'
-import { getPayableAmount, getEffectivePayable, DEFAULT_PRICING, type MealPlanPricing } from '@/lib/pricing-utils'
+import { getPayableAmount, DEFAULT_PRICING, type MealPlanPricing } from '@/lib/pricing-utils'
 import { SETTINGS_ID } from '@/lib/constants'
 import { 
   getMessPeriodDateRange, 
@@ -53,14 +53,13 @@ interface FeePaymentState {
   isSaving: boolean
   saveError: string | null
   saveSuccess: boolean
-  leaveDays: number
 }
 
 const INITIAL_FEE_STATE: FeePaymentState = {
   payments: [], isLoading: false, error: null,
   showForm: false, formInstallment: 1, formAmount: '',
   formMode: 'CASH', formNote: '', isSaving: false,
-  saveError: null, saveSuccess: false, leaveDays: 0,
+  saveError: null, saveSuccess: false,
 }
 
 type FeeAction =
@@ -77,7 +76,6 @@ type FeeAction =
   | { type: 'SAVE_SUCCESS'; payments: FeePayment[] }
   | { type: 'SAVE_ERROR'; error: string }
   | { type: 'CLEAR_SUCCESS' }
-  | { type: 'SET_LEAVE_DAYS'; days: number }
   | { type: 'RESET' }
 
 function feeReducer(state: FeePaymentState, action: FeeAction): FeePaymentState {
@@ -95,7 +93,6 @@ function feeReducer(state: FeePaymentState, action: FeeAction): FeePaymentState 
     case 'SAVE_SUCCESS': return { ...state, isSaving: false, payments: action.payments, showForm: false, saveSuccess: true, formAmount: '', formNote: '', formMode: 'CASH' }
     case 'SAVE_ERROR': return { ...state, isSaving: false, saveError: action.error }
     case 'CLEAR_SUCCESS': return { ...state, saveSuccess: false }
-    case 'SET_LEAVE_DAYS': return { ...state, leaveDays: action.days }
     case 'RESET': return INITIAL_FEE_STATE
     default: return state
   }
@@ -321,10 +318,10 @@ export function StudentsList() {
     // Fetch fee payments and open modal
     dispatchFee({ type: 'RESET' })
     setShowDetailModal(true)
-    fetchFeePayments(student.id, activePeriod?.start_date, activePeriod?.end_date)
+    fetchFeePayments(student.id)
   }
 
-  const fetchFeePayments = useCallback(async (studentId: string, periodStart?: string, periodEnd?: string) => {
+  const fetchFeePayments = useCallback(async (studentId: string) => {
     dispatchFee({ type: 'FETCH_START' })
     const { data, error } = await supabase
       .from('fee_payments')
@@ -337,27 +334,6 @@ export function StudentsList() {
       return
     }
     dispatchFee({ type: 'FETCH_SUCCESS', payments: data || [] })
-
-    // Fetch approved leave days within the mess period for payable deduction
-    if (periodStart && periodEnd) {
-      const { data: leaves } = await supabase
-        .from('leaves')
-        .select('start_date, end_date')
-        .eq('user_id', studentId)
-        .eq('is_approved', true)
-        .gte('end_date', periodStart)
-        .lte('start_date', periodEnd)
-
-      if (leaves && leaves.length > 0) {
-        let leaveDays = 0
-        for (const leave of leaves) {
-          const s = new Date(Math.max(new Date(leave.start_date).getTime(), new Date(periodStart).getTime()))
-          const e = new Date(Math.min(new Date(leave.end_date).getTime(), new Date(periodEnd).getTime()))
-          leaveDays += Math.max(0, Math.round((e.getTime() - s.getTime()) / 86400000) + 1)
-        }
-        dispatchFee({ type: 'SET_LEAVE_DAYS', days: leaveDays })
-      }
-    }
   }, [supabase, currentMonth])
 
   const handleAddPayment = async () => {
@@ -1568,7 +1544,7 @@ export function StudentsList() {
                       {/* Meal Plan + payable summary */}
                       {(() => {
                         const mealPlan = (messPeriod?.meal_plan ?? selectedStudent.meal_plan) as 'L' | 'D' | 'DL' | undefined
-                        const totalPayable = getEffectivePayable(mealPlan, pricing, fee.leaveDays)
+                        const totalPayable = getPayableAmount(mealPlan, pricing)
                         const totalPaid = fee.payments.reduce((s, p) => s + Number(p.amount), 0)
                         const isFullyPaid = totalPaid >= totalPayable
                         const paidInstallments = new Set(fee.payments.map(p => p.installment_number))
@@ -1582,12 +1558,6 @@ export function StudentsList() {
                               </div>
                               <MealPlanBadge plan={mealPlan} />
                             </div>
-
-                            {fee.leaveDays > 0 && (
-                              <p className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-1.5">
-                                {fee.leaveDays} leave day{fee.leaveDays > 1 ? 's' : ''} deducted — Payable: ₹{totalPayable.toLocaleString('en-IN')} (of ₹{getPayableAmount(mealPlan, pricing).toLocaleString('en-IN')})
-                              </p>
-                            )}
 
                             {/* Payment status */}
                             <FeePaymentStatus

@@ -22,21 +22,6 @@ export function getPayableAmount(
   return pricing.both_price
 }
 
-/**
- * Returns the effective payable amount after deducting approved leave days.
- * Formula: fullPrice - (leaveDays × pricePerDay)
- * pricePerDay = fullPrice / 30
- */
-export function getEffectivePayable(
-  mealPlan: 'L' | 'D' | 'DL' | string | null | undefined,
-  pricing: MealPlanPricing,
-  approvedLeaveDays: number
-): number {
-  const full = getPayableAmount(mealPlan, pricing)
-  const deduction = Math.round((full / 30) * approvedLeaveDays)
-  return Math.max(0, full - deduction)
-}
-
 export interface MessCycle {
   startDate: Date
   endDate: Date
