@@ -17,11 +17,6 @@ export const MAX_NOTE_LENGTH = 100 as const
 export const MIN_AMOUNT = 1 as const
 export const MAX_AMOUNT = 99999 as const
 
-export function getCurrentMonth(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
-
 interface FeePaymentStatusProps {
   payments: FeePayment[]
   isLoading: boolean
@@ -54,7 +49,7 @@ export function FeePaymentStatus({ payments, isLoading, error, totalPayable }: F
     return (
       <div className="flex items-center gap-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
         <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-        <p className="text-sm font-medium text-red-700 dark:text-red-400">No payment recorded for this month</p>
+        <p className="text-sm font-medium text-red-700 dark:text-red-400">No payment recorded for this period</p>
       </div>
     )
   }

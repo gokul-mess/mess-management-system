@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { parseError } from '@/lib/error-handler'
-import { FeePaymentStatus, getCurrentMonth, type FeePayment } from '@/components/shared/fee-payment-status'
+import { FeePaymentStatus, type FeePayment } from '@/components/shared/fee-payment-status'
 import { MessCycleTracker } from '@/components/shared/mess-cycle-tracker'
 import { getPayableAmount, DEFAULT_PRICING, type MealPlanPricing } from '@/lib/pricing-utils'
 import { SETTINGS_ID } from '@/lib/constants'
@@ -48,7 +48,6 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
   const [pricing, setPricing] = useState<MealPlanPricing>(DEFAULT_PRICING)
   const [messPeriod, setMessPeriod] = useState<{ start_date: string; end_date: string; meal_plan?: string | null } | null>(null)
   const supabase = useMemo(() => createClient(), [])
-  const currentMonth = getCurrentMonth()
   const isMounted = useRef(true)
 
   useEffect(() => {
@@ -56,29 +55,7 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
     return () => { isMounted.current = false }
   }, [])
 
-  useEffect(() => {
-    if (!profile?.id) return
-    const fetchPayments = async () => {
-      setPaymentsLoading(true)
-      setPaymentsError(null)
-      const { data, error: fetchErr } = await supabase
-        .from('fee_payments')
-        .select('*')
-        .eq('user_id', profile.id)
-        .eq('payment_month', currentMonth)
-        .order('installment_number', { ascending: true })
-      if (!isMounted.current) return
-      if (fetchErr) {
-        setPaymentsError(parseError(fetchErr).message)
-      } else {
-        setFeePayments(data || [])
-      }
-      setPaymentsLoading(false)
-    }
-    fetchPayments()
-  }, [profile?.id, currentMonth, supabase])
-
-  // Fetch pricing, active mess period, and approved leave days
+  // Fetch pricing, active mess period, and then fee payments
   useEffect(() => {
     if (!profile?.id) return
     Promise.all([
@@ -104,6 +81,24 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
       }
       if (mp?.start_date && mp?.end_date) {
         setMessPeriod({ start_date: mp.start_date, end_date: mp.end_date, meal_plan: mp.meal_plan ?? null })
+        setPaymentsLoading(true)
+        setPaymentsError(null)
+        const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+        const { data: payData, error: payErr } = await supabase
+          .from('fee_payments')
+          .select('*')
+          .eq('user_id', profile.id)
+          .eq('payment_month', currentMonth)
+          .order('installment_number', { ascending: true })
+        if (!isMounted.current) return
+        if (payErr) {
+          setPaymentsError(parseError(payErr).message)
+        } else {
+          setFeePayments(payData || [])
+        }
+        setPaymentsLoading(false)
+      } else {
+        setPaymentsLoading(false)
       }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -333,7 +328,10 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
                     payments={feePayments}
                     isLoading={paymentsLoading}
                     error={paymentsError}
-                    totalPayable={getPayableAmount(messPeriod?.meal_plan ?? profile?.meal_plan, pricing)}
+                    totalPayable={(() => {
+                      const plan = messPeriod?.meal_plan ?? profile?.meal_plan
+                      return plan ? getPayableAmount(plan, pricing) : null
+                    })()}
                   />
                 </div>
               </div>

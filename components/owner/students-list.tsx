@@ -28,7 +28,7 @@ import { LoadingState } from '@/components/ui/loading-state'
 import { generateProfessionalReport } from '@/lib/professional-report-generator'
 import { generateAttendanceExcel } from '@/lib/excel-generator'
 import { MealPlanBadge } from '@/components/shared/meal-plan-badge'
-import { FeePaymentStatus, getCurrentMonth, PAYMENT_SUCCESS_TIMEOUT, MAX_NOTE_LENGTH, MIN_AMOUNT, MAX_AMOUNT, type FeePayment } from '@/components/shared/fee-payment-status'
+import { FeePaymentStatus, PAYMENT_SUCCESS_TIMEOUT, MAX_NOTE_LENGTH, MIN_AMOUNT, MAX_AMOUNT, type FeePayment } from '@/components/shared/fee-payment-status'
 import { MessCycleTracker } from '@/components/shared/mess-cycle-tracker'
 import { getPayableAmount, DEFAULT_PRICING, type MealPlanPricing } from '@/lib/pricing-utils'
 import { SETTINGS_ID } from '@/lib/constants'
@@ -173,7 +173,6 @@ export function StudentsList() {
   // Fee payment state via reducer
   const [fee, dispatchFee] = useReducer(feeReducer, INITIAL_FEE_STATE)
   const feeSuccessTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const currentMonth = getCurrentMonth()
   
   // Permission form state
   const [permissionForm, setPermissionForm] = useState({
@@ -323,6 +322,7 @@ export function StudentsList() {
 
   const fetchFeePayments = useCallback(async (studentId: string) => {
     dispatchFee({ type: 'FETCH_START' })
+    const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
     const { data, error } = await supabase
       .from('fee_payments')
       .select('*')
@@ -334,7 +334,7 @@ export function StudentsList() {
       return
     }
     dispatchFee({ type: 'FETCH_SUCCESS', payments: data || [] })
-  }, [supabase, currentMonth])
+  }, [supabase])
 
   const handleAddPayment = async () => {
     if (!selectedStudent) return
@@ -343,6 +343,7 @@ export function StudentsList() {
     const amountError = validateNumberRange(amountNum, MIN_AMOUNT, MAX_AMOUNT, 'Amount')
     if (amountError) { dispatchFee({ type: 'SAVE_ERROR', error: amountError.message }); return }
 
+    const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
     dispatchFee({ type: 'SAVE_START' })
     const { error } = await supabase
       .from('fee_payments')
@@ -372,7 +373,6 @@ export function StudentsList() {
       .order('installment_number', { ascending: true })
 
     dispatchFee({ type: 'SAVE_SUCCESS', payments: updated || [] })
-
     if (feeSuccessTimer.current) clearTimeout(feeSuccessTimer.current)
     feeSuccessTimer.current = setTimeout(() => dispatchFee({ type: 'CLEAR_SUCCESS' }), PAYMENT_SUCCESS_TIMEOUT)
   }
@@ -1544,9 +1544,10 @@ export function StudentsList() {
                       {/* Meal Plan + payable summary */}
                       {(() => {
                         const mealPlan = (messPeriod?.meal_plan ?? selectedStudent.meal_plan) as 'L' | 'D' | 'DL' | undefined
-                        const totalPayable = getPayableAmount(mealPlan, pricing)
+                        // Only compute totalPayable when we have a confirmed meal plan
+                        const totalPayable = mealPlan ? getPayableAmount(mealPlan, pricing) : null
                         const totalPaid = fee.payments.reduce((s, p) => s + Number(p.amount), 0)
-                        const isFullyPaid = totalPaid >= totalPayable
+                        const isFullyPaid = totalPayable != null && totalPaid >= totalPayable
                         const paidInstallments = new Set(fee.payments.map(p => p.installment_number))
                         const nextInstallment: 1 | 2 = paidInstallments.has(1) ? 2 : 1
                         return (
@@ -1585,7 +1586,7 @@ export function StudentsList() {
                                   </div>
                                   <div>
                                     <label htmlFor="amount-input" className="text-xs font-medium text-muted-foreground">
-                                      Amount (₹) — Remaining: ₹{Math.max(0, totalPayable - totalPaid).toLocaleString('en-IN')}
+                                      Amount (₹){totalPayable != null ? ` — Remaining: ₹${Math.max(0, totalPayable - totalPaid).toLocaleString('en-IN')}` : ''}
                                     </label>
                                     <input
                                       id="amount-input"
@@ -1594,7 +1595,7 @@ export function StudentsList() {
                                       max={MAX_AMOUNT}
                                       value={fee.formAmount}
                                       onChange={e => dispatchFee({ type: 'SET_AMOUNT', value: e.target.value })}
-                                      placeholder={`e.g. ${Math.max(0, totalPayable - totalPaid)}`}
+                                      placeholder={totalPayable != null ? `e.g. ${Math.max(0, totalPayable - totalPaid)}` : 'Enter amount'}
                                       className="w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                                     />
                                   </div>
