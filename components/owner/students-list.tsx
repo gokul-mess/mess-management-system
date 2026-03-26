@@ -322,13 +322,33 @@ export function StudentsList() {
 
   const fetchFeePayments = useCallback(async (studentId: string) => {
     dispatchFee({ type: 'FETCH_START' })
-    const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+    
+    // First, get the active mess period ID
+    const { data: messPeriodData, error: periodError } = await supabase
+      .from('mess_periods')
+      .select('id')
+      .eq('user_id', studentId)
+      .eq('is_active', true)
+      .maybeSingle()
+    
+    if (periodError) {
+      dispatchFee({ type: 'FETCH_ERROR', error: 'Failed to load mess period' })
+      return
+    }
+    
+    if (!messPeriodData) {
+      dispatchFee({ type: 'FETCH_ERROR', error: 'No active mess period found' })
+      return
+    }
+    
+    // Now query payments by mess_period_id
     const { data, error } = await supabase
       .from('fee_payments')
       .select('*')
       .eq('user_id', studentId)
-      .eq('payment_month', currentMonth)
+      .eq('mess_period_id', messPeriodData.id)
       .order('installment_number', { ascending: true })
+      
     if (error) {
       dispatchFee({ type: 'FETCH_ERROR', error: parseError(error).message })
       return
@@ -343,13 +363,25 @@ export function StudentsList() {
     const amountError = validateNumberRange(amountNum, MIN_AMOUNT, MAX_AMOUNT, 'Amount')
     if (amountError) { dispatchFee({ type: 'SAVE_ERROR', error: amountError.message }); return }
 
-    const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+    // Get the active mess period ID
+    const { data: messPeriodData, error: periodError } = await supabase
+      .from('mess_periods')
+      .select('id')
+      .eq('user_id', selectedStudent.id)
+      .eq('is_active', true)
+      .maybeSingle()
+    
+    if (periodError || !messPeriodData) {
+      dispatchFee({ type: 'SAVE_ERROR', error: 'No active mess period found' })
+      return
+    }
+
     dispatchFee({ type: 'SAVE_START' })
     const { error } = await supabase
       .from('fee_payments')
       .insert({
         user_id: selectedStudent.id,
-        payment_month: currentMonth,
+        mess_period_id: messPeriodData.id,
         installment_number: fee.formInstallment,
         amount: amountNum,
         payment_mode: fee.formMode,
@@ -360,16 +392,17 @@ export function StudentsList() {
       const parsed = parseError(error)
       dispatchFee({
         type: 'SAVE_ERROR',
-        error: error.code === '23505' ? 'Installment already recorded for this month.' : parsed.message,
+        error: error.code === '23505' ? 'Installment already recorded for this period.' : parsed.message,
       })
       return
     }
 
+    // Refresh payments by mess_period_id
     const { data: updated } = await supabase
       .from('fee_payments')
       .select('*')
       .eq('user_id', selectedStudent.id)
-      .eq('payment_month', currentMonth)
+      .eq('mess_period_id', messPeriodData.id)
       .order('installment_number', { ascending: true })
 
     dispatchFee({ type: 'SAVE_SUCCESS', payments: updated || [] })
@@ -389,12 +422,22 @@ export function StudentsList() {
     // Validate required fields
     const validationError = validateRequired(studentEditForm, ['full_name'])
     if (validationError) {
-      // Show error in edit section
+      // Show validation error using the error handler
+      await executeEdit(async () => {
+        throw new Error(validationError.message)
+      })
       return
     }
     
     await executeEdit(async () => {
-      const { error } = await supabase
+      console.log('Attempting to update student:', selectedStudent.id)
+      console.log('Update data:', {
+        full_name: studentEditForm.full_name,
+        phone: studentEditForm.phone,
+        address: studentEditForm.address
+      })
+      
+      const { data, error } = await supabase
         .from('users')
         .update({
           full_name: studentEditForm.full_name,
@@ -402,8 +445,18 @@ export function StudentsList() {
           address: studentEditForm.address
         })
         .eq('id', selectedStudent.id)
+        .select()
 
-      if (error) throw error
+      console.log('Update response:', { data, error })
+
+      if (error) {
+        console.error('Update error:', error)
+        throw error
+      }
+      
+      if (!data || data.length === 0) {
+        throw new Error('No rows were updated. This might be a permissions issue.')
+      }
 
       setIsEditingStudent(false)
       

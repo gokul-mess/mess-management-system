@@ -4,7 +4,8 @@ import { CheckCircle, XCircle } from 'lucide-react'
 
 export interface FeePayment {
   payment_id: string
-  payment_month: string
+  payment_month?: string // Legacy field - kept for backward compatibility
+  mess_period_id?: string // New field - links to mess_periods table
   installment_number: number
   amount: number
   payment_mode: 'UPI' | 'CASH'

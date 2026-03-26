@@ -131,8 +131,6 @@ interface StudentDashboardContentProps {
     full_name?: string
     unique_short_id?: number
     photo_url?: string | null
-    meal_plan?: string | null
-    subscription_end_date?: string | null
   } | null
   hasLunch: boolean
   hasDinner: boolean
@@ -140,8 +138,8 @@ interface StudentDashboardContentProps {
   totalMeals: number
   onNavigate: (tab: string) => void
   isLoading: boolean
-  /** Meal plan from the active mess_period (authoritative), falls back to profile.meal_plan */
-  messActiveMealPlan?: string | null
+  messActiveMealPlan: string | null
+  approvedLeaveDays: number
 }
 
 export function StudentDashboardContent({
@@ -153,6 +151,7 @@ export function StudentDashboardContent({
   onNavigate,
   isLoading,
   messActiveMealPlan,
+  approvedLeaveDays,
 }: StudentDashboardContentProps): React.ReactElement {
   const animatedDays = useAnimatedCounter({ target: daysRemaining, enabled: !isLoading })
   const animatedMeals = useAnimatedCounter({ target: totalMeals, enabled: !isLoading })
@@ -197,14 +196,9 @@ export function StudentDashboardContent({
               <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/30 hover:bg-white/30 transition-all hover:scale-105">
                 <Utensils className="w-4 h-4" />
                 <span className="text-sm font-semibold">
-                  {(() => {
-                    // Prefer the authoritative meal plan from mess_periods over profile (users table)
-                    const plan = messActiveMealPlan ?? profile?.meal_plan
-                    if (plan === 'L') return 'Lunch Only'
-                    if (plan === 'D') return 'Dinner Only'
-                    if (plan === 'DL') return 'Both Meals'
-                    return 'No Plan'
-                  })()}
+                  {messActiveMealPlan === 'L' ? 'Lunch Only' :
+                   messActiveMealPlan === 'D' ? 'Dinner Only' :
+                   messActiveMealPlan === 'DL' ? 'Both Meals' : 'No Plan'}
                 </span>
               </div>
             </div>
@@ -229,7 +223,7 @@ export function StudentDashboardContent({
           icon={Clock}
           title="Days Remaining"
           value={animatedDays.toString()}
-          subtitle="until subscription expires"
+          subtitle={approvedLeaveDays > 0 ? `includes ${approvedLeaveDays} leave days` : "until subscription expires"}
           color={daysRemaining > 7 ? 'green' : daysRemaining > 3 ? 'yellow' : 'red'}
           delay="0ms"
           trend={daysRemaining > 7 ? 'up' : 'down'}
@@ -268,7 +262,7 @@ export function StudentDashboardContent({
           icon={TrendingUp}
           title="Balance Days"
           value={balanceLoading ? '...' : (balance?.balanceDays ?? 0).toString()}
-          subtitle={`of ${balance?.totalDays ?? 30} usable days`}
+          subtitle={`of ${balance?.totalDays ?? 0} total days`}
           color={(balance?.balanceDays ?? 0) > 7 ? 'green' : (balance?.balanceDays ?? 0) > 3 ? 'yellow' : 'red'}
           delay="400ms"
           trend={(balance?.balanceDays ?? 0) > 0 ? 'up' : 'down'}
@@ -286,7 +280,7 @@ export function StudentDashboardContent({
           icon={Calendar}
           title="Leave Days"
           value={balanceLoading ? '...' : (balance?.leaveDays ?? 0).toString()}
-          subtitle="approved · excluded from balance"
+          subtitle="approved leaves"
           color="gray"
           delay="600ms"
         />
@@ -353,23 +347,20 @@ export function StudentDashboardContent({
         </div>
       )}
 
-      {(() => {
-        const hasExpiredSubscription = daysRemaining <= 0 && profile && 'subscription_end_date' in profile && profile.subscription_end_date
-        return hasExpiredSubscription ? (
-          <div className="relative p-6 rounded-2xl border-2 bg-red-50 dark:bg-red-950/20 border-red-500/30 animate-in slide-in-from-bottom-2 duration-500 overflow-hidden group" style={{ animationDelay: '800ms' }}>
-            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-red-500/5" />
-            <div className="flex gap-4 relative z-10">
-              <XCircle className="w-6 h-6 flex-shrink-0 animate-pulse text-red-600 dark:text-red-400" />
-              <div>
-                <h4 className="font-bold mb-1 text-red-900 dark:text-red-100">Subscription Expired</h4>
-                <p className="text-sm text-red-800 dark:text-red-200">
-                  Your subscription has expired. Please contact the mess owner immediately to renew your subscription and continue enjoying meals.
-                </p>
-              </div>
+      {daysRemaining <= 0 && (
+        <div className="relative p-6 rounded-2xl border-2 bg-red-50 dark:bg-red-950/20 border-red-500/30 animate-in slide-in-from-bottom-2 duration-500 overflow-hidden group" style={{ animationDelay: '800ms' }}>
+          <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-red-500/5" />
+          <div className="flex gap-4 relative z-10">
+            <XCircle className="w-6 h-6 flex-shrink-0 animate-pulse text-red-600 dark:text-red-400" />
+            <div>
+              <h4 className="font-bold mb-1 text-red-900 dark:text-red-100">Subscription Expired</h4>
+              <p className="text-sm text-red-800 dark:text-red-200">
+                Your subscription has expired. Please contact the mess owner immediately to renew your subscription and continue enjoying meals.
+              </p>
             </div>
           </div>
-        ) : null
-      })()}
+        </div>
+      )}
     </div>
   )
 }

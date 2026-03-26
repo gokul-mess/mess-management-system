@@ -44,9 +44,14 @@ export function LeaveRequests() {
     setIsLoading(true)
     setError(null)
     try {
+      // Fetch all leaves excluding rejected ones
+      // A leave is rejected if: rejection_reason IS NOT NULL OR owner_rejected = true
+      // So we want: rejection_reason IS NULL AND owner_rejected = false
       const { data, error: fetchError } = await supabase
         .from('leaves')
         .select('*, users(full_name, unique_short_id)')
+        .is('rejection_reason', null)
+        .eq('owner_rejected', false)
         .order('created_at', { ascending: false })
 
       if (fetchError) throw fetchError
@@ -111,10 +116,12 @@ export function LeaveRequests() {
     setProcessingId(leaveId)
     setError(null)
     try {
-      const { error: rejectError } = await supabase
-        .from('leaves')
-        .delete()
-        .eq('leave_id', leaveId)
+      // Use the reject_leave_request RPC function instead of DELETE
+      // This marks the leave as rejected without deleting data
+      const { error: rejectError } = await supabase.rpc('reject_leave_request', {
+        p_leave_id: leaveId,
+        p_rejection_reason: 'Rejected by owner'
+      })
       if (rejectError) throw rejectError
       await fetchRequests()
     } catch (err) {

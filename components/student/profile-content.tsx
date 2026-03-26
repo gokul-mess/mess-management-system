@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import {
-  Clock,
   CheckCircle,
   Utensils,
   User,
@@ -46,7 +45,7 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
   const [paymentsLoading, setPaymentsLoading] = useState(true)
   const [paymentsError, setPaymentsError] = useState<string | null>(null)
   const [pricing, setPricing] = useState<MealPlanPricing>(DEFAULT_PRICING)
-  const [messPeriod, setMessPeriod] = useState<{ start_date: string; end_date: string; meal_plan?: string | null } | null>(null)
+  const [messPeriod, setMessPeriod] = useState<{ id: string; start_date: string; end_date: string; meal_plan?: string | null } | null>(null)
   const supabase = useMemo(() => createClient(), [])
   const isMounted = useRef(true)
 
@@ -66,7 +65,7 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
         .single(),
       supabase
         .from('mess_periods')
-        .select('start_date, end_date, meal_plan')
+        .select('id, start_date, end_date, meal_plan')
         .eq('user_id', profile.id)
         .eq('is_active', true)
         .maybeSingle(),
@@ -79,16 +78,15 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
           both_price: ps.both_price ?? DEFAULT_PRICING.both_price,
         })
       }
-      if (mp?.start_date && mp?.end_date) {
-        setMessPeriod({ start_date: mp.start_date, end_date: mp.end_date, meal_plan: mp.meal_plan ?? null })
+      if (mp?.id && mp?.start_date && mp?.end_date) {
+        setMessPeriod({ id: mp.id, start_date: mp.start_date, end_date: mp.end_date, meal_plan: mp.meal_plan ?? null })
         setPaymentsLoading(true)
         setPaymentsError(null)
-        const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
         const { data: payData, error: payErr } = await supabase
           .from('fee_payments')
           .select('*')
           .eq('user_id', profile.id)
-          .eq('payment_month', currentMonth)
+          .eq('mess_period_id', mp.id)
           .order('installment_number', { ascending: true })
         if (!isMounted.current) return
         if (payErr) {
@@ -103,18 +101,6 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.id])
-
-  // Derive days remaining from mess_periods end_date — local date, Math.round (timezone-safe)
-  const daysRemaining = messPeriod?.end_date
-    ? (() => {
-        const [y, m, d] = messPeriod.end_date.split('-').map(Number)
-        const endMidnight = new Date(y, m - 1, d).getTime()
-        const todayStr = new Date().toISOString().split('T')[0]
-        const [ty, tm, td] = todayStr.split('-').map(Number)
-        const todayMidnight = new Date(ty, tm - 1, td).getTime()
-        return Math.max(0, Math.round((endMidnight - todayMidnight) / 86400000))
-      })()
-    : 0
 
   const canUpdatePhoto = profile?.photo_update_allowed &&
     profile?.permission_expires_at &&
@@ -345,32 +331,6 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">Subscription Status</label>
-              <div className={`p-5 rounded-xl border-2 ${
-                daysRemaining > 7 ? 'bg-green-50 dark:bg-green-950/20 border-green-500/30' :
-                daysRemaining > 3 ? 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-500/30' :
-                'bg-red-50 dark:bg-red-950/20 border-red-500/30'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className={`font-bold text-4xl ${
-                      daysRemaining > 7 ? 'text-green-600 dark:text-green-400' :
-                      daysRemaining > 3 ? 'text-yellow-600 dark:text-yellow-400' :
-                      'text-red-600 dark:text-red-400'
-                    }`}>{daysRemaining}</p>
-                    <p className="text-xs text-muted-foreground mt-1 font-medium">days remaining</p>
-                  </div>
-                  {daysRemaining > 7 ? (
-                    <CheckCircle className="w-12 h-12 text-green-600 dark:text-green-400" />
-                  ) : daysRemaining > 3 ? (
-                    <Clock className="w-12 h-12 text-yellow-600 dark:text-yellow-400" />
-                  ) : (
-                    <AlertCircle className="w-12 h-12 text-red-600 dark:text-red-400 animate-pulse" />
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
 
           <div className="mt-8">

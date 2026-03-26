@@ -61,10 +61,13 @@ export function OwnerDashboardContent({ stats, logs, isLoading }: DashboardConte
     queryKey: ['owner', 'pending-leaves'],
     queryFn: async () => {
       const supabase = createClient()
+      // Only count truly pending leaves (not rejected)
       const { data } = await supabase
         .from('leaves')
         .select('leave_id', { count: 'exact' })
         .eq('is_approved', false)
+        .is('rejection_reason', null)
+        .eq('owner_rejected', false)
       return data?.length ?? 0
     },
   })

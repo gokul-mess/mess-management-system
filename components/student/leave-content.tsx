@@ -14,19 +14,24 @@ interface LeaveContentProps {
   profile: { id: string; full_name?: string } | null
 }
 
+interface LeaveRecord {
+  leave_id: string
+  start_date: string
+  end_date: string
+  is_approved: boolean
+  rejection_reason?: string | null
+  rejected_at?: string | null
+  auto_adjusted?: boolean
+  created_at: string
+}
+
 export function LeaveContent({ profile }: LeaveContentProps) {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [leaveHistory, setLeaveHistory] = useState<Array<{
-    leave_id: string
-    start_date: string
-    end_date: string
-    is_approved: boolean
-    created_at: string
-  }>>([])
+  const [leaveHistory, setLeaveHistory] = useState<LeaveRecord[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const supabase = createClient()
 
@@ -267,7 +272,11 @@ export function LeaveContent({ profile }: LeaveContentProps) {
               <p className="text-sm text-muted-foreground">Loading history...</p>
             </div>
           ) : leaveHistory.length > 0 ? (
-            leaveHistory.map((leave, index) => (
+            leaveHistory.map((leave, index) => {
+              const isRejected = !leave.is_approved && leave.rejection_reason
+              const isApproved = leave.is_approved
+              
+              return (
               <div
                 key={leave.leave_id}
                 className="p-5 hover:bg-accent/30 transition-all duration-300 animate-in slide-in-from-right-2"
@@ -276,10 +285,14 @@ export function LeaveContent({ profile }: LeaveContentProps) {
                 <div className="flex items-center justify-between flex-wrap gap-4">
                   <div className="flex items-center gap-4">
                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                      leave.is_approved ? 'bg-green-100 dark:bg-green-950/30' : 'bg-yellow-100 dark:bg-yellow-950/30'
+                      isApproved ? 'bg-green-100 dark:bg-green-950/30' : 
+                      isRejected ? 'bg-red-100 dark:bg-red-950/30' :
+                      'bg-yellow-100 dark:bg-yellow-950/30'
                     }`}>
-                      {leave.is_approved
+                      {isApproved
                         ? <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
+                        : isRejected
+                        ? <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
                         : <Clock className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />}
                     </div>
                     <div>
@@ -293,19 +306,27 @@ export function LeaveContent({ profile }: LeaveContentProps) {
                           const d = Math.round((new Date(ey, em-1, ed).getTime() - new Date(sy, sm-1, sd).getTime()) / 86400000) + 1
                           return `${d} ${d === 1 ? 'day' : 'days'}`
                         })()}
+                        {leave.auto_adjusted && ' • Auto-adjusted'}
                       </p>
+                      {isRejected && leave.rejection_reason && (
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-1 max-w-xs">
+                          {leave.rejection_reason}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                    leave.is_approved
+                    isApproved
                       ? 'bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400'
+                      : isRejected
+                      ? 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400'
                       : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-400'
                   }`}>
-                    {leave.is_approved ? 'Approved' : 'Pending'}
+                    {isApproved ? 'Approved' : isRejected ? 'Rejected' : 'Pending'}
                   </span>
                 </div>
               </div>
-            ))
+            )})
           ) : (
             <div className="p-16 text-center">
               <Calendar className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
