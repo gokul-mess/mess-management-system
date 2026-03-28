@@ -81,10 +81,13 @@ export function FeePaymentStatus({ payments, isLoading, error, totalPayable }: F
 
       {/* Summary */}
       {isComplete ? (
-        <p className="text-center text-xs font-semibold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg py-2">
-          ✓ Payment Complete — Total ₹{totalPaid.toLocaleString('en-IN')}
-          {totalPayable != null && ` / ₹${totalPayable.toLocaleString('en-IN')}`}
-        </p>
+        <div className="flex items-center justify-center gap-2 text-sm font-semibold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg py-2.5">
+          <CheckCircle className="w-4 h-4" />
+          <span>Fully Paid — ₹{totalPaid.toLocaleString('en-IN')}</span>
+          {totalPayable != null && totalPayable !== totalPaid && (
+            <span className="text-xs text-muted-foreground">/ ₹{totalPayable.toLocaleString('en-IN')}</span>
+          )}
+        </div>
       ) : remaining != null && remaining > 0 ? (
         <p className="text-center text-xs font-semibold text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg py-2">
           Paid ₹{totalPaid.toLocaleString('en-IN')} — Remaining ₹{remaining.toLocaleString('en-IN')}

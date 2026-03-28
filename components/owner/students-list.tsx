@@ -30,6 +30,7 @@ import { generateAttendanceExcel } from '@/lib/excel-generator'
 import { MealPlanBadge } from '@/components/shared/meal-plan-badge'
 import { FeePaymentStatus, PAYMENT_SUCCESS_TIMEOUT, MAX_NOTE_LENGTH, MIN_AMOUNT, MAX_AMOUNT, type FeePayment } from '@/components/shared/fee-payment-status'
 import { MessCycleTracker } from '@/components/shared/mess-cycle-tracker'
+import { WeeklyProgressBar } from '@/components/shared/weekly-progress-bar'
 import { getPayableAmount, DEFAULT_PRICING, type MealPlanPricing } from '@/lib/pricing-utils'
 import { SETTINGS_ID } from '@/lib/constants'
 import { 
@@ -46,7 +47,6 @@ interface FeePaymentState {
   isLoading: boolean
   error: string | null
   showForm: boolean
-  formInstallment: 1 | 2
   formAmount: string
   formMode: PaymentMode
   formNote: string
@@ -57,7 +57,7 @@ interface FeePaymentState {
 
 const INITIAL_FEE_STATE: FeePaymentState = {
   payments: [], isLoading: false, error: null,
-  showForm: false, formInstallment: 1, formAmount: '',
+  showForm: false, formAmount: '',
   formMode: 'CASH', formNote: '', isSaving: false,
   saveError: null, saveSuccess: false,
 }
@@ -66,9 +66,8 @@ type FeeAction =
   | { type: 'FETCH_START' }
   | { type: 'FETCH_SUCCESS'; payments: FeePayment[] }
   | { type: 'FETCH_ERROR'; error: string }
-  | { type: 'TOGGLE_FORM'; nextInstallment: 1 | 2 }
+  | { type: 'TOGGLE_FORM' }
   | { type: 'CLOSE_FORM' }
-  | { type: 'SET_INSTALLMENT'; value: 1 | 2 }
   | { type: 'SET_AMOUNT'; value: string }
   | { type: 'SET_MODE'; value: PaymentMode }
   | { type: 'SET_NOTE'; value: string }
@@ -83,9 +82,8 @@ function feeReducer(state: FeePaymentState, action: FeeAction): FeePaymentState 
     case 'FETCH_START': return { ...state, isLoading: true, error: null }
     case 'FETCH_SUCCESS': return { ...state, isLoading: false, payments: action.payments }
     case 'FETCH_ERROR': return { ...state, isLoading: false, error: action.error }
-    case 'TOGGLE_FORM': return { ...state, showForm: !state.showForm, saveError: null, formInstallment: action.nextInstallment }
+    case 'TOGGLE_FORM': return { ...state, showForm: !state.showForm, saveError: null }
     case 'CLOSE_FORM': return { ...state, showForm: false, saveError: null, formAmount: '', formNote: '', formMode: 'CASH' }
-    case 'SET_INSTALLMENT': return { ...state, formInstallment: action.value }
     case 'SET_AMOUNT': return { ...state, formAmount: action.value }
     case 'SET_MODE': return { ...state, formMode: action.value }
     case 'SET_NOTE': return { ...state, formNote: action.value.slice(0, MAX_NOTE_LENGTH) }
@@ -110,6 +108,12 @@ interface Student {
   subscription_end_date?: string
   /** End date sourced from the active mess_period (preferred over subscription_end_date) */
   mess_end_date?: string
+  /** Start date sourced from the active mess_period */
+  mess_start_date?: string
+  /** Original end date before leave extensions */
+  mess_original_end_date?: string
+  /** Approved leave days count for the current mess period */
+  approved_leave_days?: number
   profile_edit_allowed?: boolean
   photo_update_allowed?: boolean
   editable_fields?: string[]
@@ -210,7 +214,7 @@ export function StudentsList() {
       
       const { data, error } = await supabase
         .from('users')
-        .select('*, mess_periods!mess_periods_user_id_fkey(meal_plan, is_active, end_date)')
+        .select('*, mess_periods!mess_periods_user_id_fkey(id, meal_plan, is_active, end_date, start_date, original_end_date)')
         .eq('role', 'STUDENT')
         .order('unique_short_id', { ascending: true })
 
@@ -218,8 +222,8 @@ export function StudentsList() {
       
       // Merge active mess_period meal_plan and end_date into each student
       // Calculate active status based on mess_periods.end_date >= today AND mess_periods.is_active = true
-      const merged = (data || []).map((s: Record<string, unknown>) => {
-        const periods = s.mess_periods as { meal_plan: string; is_active: boolean; end_date: string }[] | null
+      const merged = await Promise.all((data || []).map(async (s: Record<string, unknown>) => {
+        const periods = s.mess_periods as { id: string; meal_plan: string; is_active: boolean; end_date: string; start_date: string; original_end_date: string }[] | null
         const activePeriod = periods?.find(p => p.is_active)
         
         // Calculate active status: has active period AND end_date >= today
@@ -227,13 +231,38 @@ export function StudentsList() {
           ? activePeriod.end_date >= today && activePeriod.is_active
           : false
         
+        // Fetch approved leave days for the active mess period
+        let approvedLeaveDays = 0
+        if (activePeriod) {
+          const { data: leavesData } = await supabase
+            .from('leaves')
+            .select('start_date, end_date')
+            .eq('user_id', s.id)
+            .eq('is_approved', true)
+            .gte('end_date', activePeriod.start_date)
+            .lte('start_date', activePeriod.original_end_date)
+          
+          // Calculate total leave days
+          if (leavesData && leavesData.length > 0) {
+            approvedLeaveDays = leavesData.reduce((total, leave) => {
+              const start = new Date(leave.start_date)
+              const end = new Date(leave.end_date)
+              const days = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+              return total + days
+            }, 0)
+          }
+        }
+        
         return {
           ...s,
           meal_plan: activePeriod?.meal_plan ?? s.meal_plan,
           mess_end_date: activePeriod?.end_date ?? undefined,
+          mess_start_date: activePeriod?.start_date ?? undefined,
+          mess_original_end_date: activePeriod?.original_end_date ?? undefined,
+          approved_leave_days: approvedLeaveDays,
           is_active: calculatedIsActive, // Override with calculated status
         } as Student
-      })
+      }))
       setStudents(merged)
     } catch (err) {
       console.error('Error fetching students:', err)
@@ -374,10 +403,10 @@ export function StudentsList() {
     const amountError = validateNumberRange(amountNum, MIN_AMOUNT, MAX_AMOUNT, 'Amount')
     if (amountError) { dispatchFee({ type: 'SAVE_ERROR', error: amountError.message }); return }
 
-    // Get the active mess period ID
+    // Get the active mess period ID and meal plan
     const { data: messPeriodData, error: periodError } = await supabase
       .from('mess_periods')
-      .select('id')
+      .select('id, meal_plan')
       .eq('user_id', selectedStudent.id)
       .eq('is_active', true)
       .maybeSingle()
@@ -387,13 +416,46 @@ export function StudentsList() {
       return
     }
 
+    // Calculate total payable based on meal plan
+    const mealPlan = messPeriodData.meal_plan as 'L' | 'D' | 'DL'
+    const totalPayable = getPayableAmount(mealPlan, pricing)
+    
+    // Calculate total already paid
+    const totalPaid = fee.payments.reduce((sum, p) => sum + Number(p.amount), 0)
+    
+    // Auto-determine installment number
+    const paidInstallments = new Set(fee.payments.map(p => p.installment_number))
+    const installmentNumber: 1 | 2 = paidInstallments.has(1) ? 2 : 1
+    
+    // Validate against overpayment
+    if (totalPayable && (totalPaid + amountNum) > totalPayable) {
+      const remaining = totalPayable - totalPaid
+      dispatchFee({ 
+        type: 'SAVE_ERROR', 
+        error: `Amount exceeds remaining balance. Maximum allowed: ₹${remaining.toLocaleString('en-IN')}` 
+      })
+      return
+    }
+
+    // CRITICAL: If this is the 2nd installment, it MUST complete the payment
+    if (installmentNumber === 2 && totalPayable) {
+      const remaining = totalPayable - totalPaid
+      if (amountNum !== remaining) {
+        dispatchFee({ 
+          type: 'SAVE_ERROR', 
+          error: `2nd installment must complete the payment. Required amount: ₹${remaining.toLocaleString('en-IN')}` 
+        })
+        return
+      }
+    }
+
     dispatchFee({ type: 'SAVE_START' })
     const { error } = await supabase
       .from('fee_payments')
       .insert({
         user_id: selectedStudent.id,
         mess_period_id: messPeriodData.id,
-        installment_number: fee.formInstallment,
+        installment_number: installmentNumber,
         amount: amountNum,
         payment_mode: fee.formMode,
         note: fee.formNote || null,
@@ -652,26 +714,55 @@ export function StudentsList() {
     }
   }
 
-  const getSubscriptionProgress = (student: Student) => {
-    // Prefer mess_end_date (from mess_periods), fall back to users.subscription_end_date
-    const endDate = student.mess_end_date || student.subscription_end_date
-    if (!endDate) return 0
-    const now = new Date().getTime()
-    const end = new Date(endDate).getTime()
-    const start = new Date(student.created_at).getTime()
-    const total = end - start
-    const elapsed = now - start
-    return Math.max(0, Math.min(100, (elapsed / total) * 100))
+  const getDaysRemaining = (student: Student) => {
+    // Use original_end_date (base 30 days) for calculation, not the extended end_date
+    const originalEndDate = student.mess_original_end_date || student.mess_end_date || student.subscription_end_date
+    if (!originalEndDate) return null
+    
+    // Get today's date at midnight
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    const originalEnd = new Date(originalEndDate)
+    originalEnd.setHours(0, 0, 0, 0)
+    
+    // Calculate base days remaining (from original 30-day period)
+    const msRemaining = originalEnd.getTime() - today.getTime()
+    const baseDays = Math.floor(msRemaining / (1000 * 60 * 60 * 24)) + 1
+    
+    // Add approved leave days to the display
+    const approvedLeaveDays = student.approved_leave_days || 0
+    const totalDaysRemaining = Math.max(0, baseDays) + approvedLeaveDays
+    
+    return totalDaysRemaining
   }
 
-  const getDaysRemaining = (student: Student) => {
-    // Prefer mess_end_date (from mess_periods), fall back to users.subscription_end_date
-    const endDate = student.mess_end_date || student.subscription_end_date
-    if (!endDate) return null
-    const now = new Date().getTime()
-    const end = new Date(endDate).getTime()
-    const days = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)))
-    return days
+  const getDaysElapsed = (student: Student) => {
+    // Calculate days consumed from the total 30-day period
+    // Days consumed = 30 - total days remaining (including approved leave days)
+    const originalEndDate = student.mess_original_end_date || student.mess_end_date || student.subscription_end_date
+    if (!originalEndDate) return 0
+    
+    // Get today's date at midnight for accurate day counting
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    const originalEnd = new Date(originalEndDate)
+    originalEnd.setHours(0, 0, 0, 0)
+    
+    // Calculate base days remaining (from original 30-day period, without leave days)
+    const msRemaining = originalEnd.getTime() - today.getTime()
+    const baseDaysRemaining = Math.floor(msRemaining / (1000 * 60 * 60 * 24)) + 1
+    
+    // Add approved leave days to get total days remaining
+    const approvedLeaveDays = student.approved_leave_days || 0
+    const totalDaysRemaining = Math.max(0, baseDaysRemaining) + approvedLeaveDays
+    
+    // Days consumed = 30 - total days remaining
+    const daysConsumed = 30 - totalDaysRemaining
+    
+    // Clamp between 0 and 30
+    return Math.max(0, Math.min(30, daysConsumed))
   }
 
   const filteredStudents = students.filter(student => {
@@ -961,7 +1052,6 @@ export function StudentsList() {
               <tbody className="divide-y divide-border">
                 {paginatedStudents.map((student, index) => {
                   const daysRemaining = getDaysRemaining(student)
-                  const progress = getSubscriptionProgress(student)
                   
                   return (
                     <tr 
@@ -1037,6 +1127,9 @@ export function StudentsList() {
                           // Use mess_end_date (from mess_periods) as primary, fall back to subscription_end_date
                           const endDate = student.mess_end_date || student.subscription_end_date
                           if (!endDate) return <span className="text-sm text-muted-foreground">Not set</span>
+                          
+                          const daysElapsed = getDaysElapsed(student)
+                          
                           return (
                             <div className="space-y-1">
                               <span className="text-sm text-muted-foreground block">
@@ -1044,18 +1137,7 @@ export function StudentsList() {
                               </span>
                               {daysRemaining !== null && (
                                 <>
-                                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                                    <div
-                                      className={`h-full rounded-full transition-all duration-1000 ${
-                                        daysRemaining > 7 ? 'bg-green-500' :
-                                        daysRemaining > 3 ? 'bg-yellow-500' : 'bg-red-500'
-                                      }`}
-                                      style={{
-                                        width: `${Math.max(0, 100 - progress)}%`,
-                                        animation: 'progressGrow 1s ease-out'
-                                      }}
-                                    />
-                                  </div>
+                                  <WeeklyProgressBar daysElapsed={daysElapsed} />
                                   <span className={`text-xs ${
                                     daysRemaining > 7 ? 'text-green-600 dark:text-green-400' :
                                     daysRemaining > 3 ? 'text-yellow-600 dark:text-yellow-400' :
@@ -1581,7 +1663,7 @@ export function StudentsList() {
                               </p>
                               {messPeriod?.end_date && (
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                  {new Date(messPeriod.end_date) < new Date() ? '⚠️ Subscription expired' : '✓ Active subscription'}
+                                  {new Date(messPeriod.end_date).toISOString().split('T')[0] < new Date().toISOString().split('T')[0] ? '⚠️ Subscription expired' : '✓ Active subscription'}
                                 </p>
                               )}
                             </>
@@ -1661,34 +1743,32 @@ export function StudentsList() {
                             {/* Add payment form */}
                             {fee.showForm && (
                               <div className="border border-border rounded-lg p-3 space-y-3 bg-muted/30 animate-in slide-in-from-top-2 duration-200">
-                                <div className="grid grid-cols-2 gap-2">
-                                  <div>
-                                    <label htmlFor="installment-select" className="text-xs font-medium text-muted-foreground">Installment</label>
-                                    <select
-                                      id="installment-select"
-                                      value={fee.formInstallment}
-                                      onChange={e => dispatchFee({ type: 'SET_INSTALLMENT', value: Number(e.target.value) as 1 | 2 })}
-                                      className="w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                                    >
-                                      {!paidInstallments.has(1) && <option value={1}>1st Installment</option>}
-                                      {!paidInstallments.has(2) && <option value={2}>2nd Installment</option>}
-                                    </select>
+                                {/* Info message for 2nd installment */}
+                                {nextInstallment === 2 && totalPayable && (
+                                  <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-2">
+                                    <p className="text-xs text-blue-700 dark:text-blue-400">
+                                      ℹ️ 2nd installment must complete the payment. Required: ₹{Math.max(0, totalPayable - totalPaid).toLocaleString('en-IN')}
+                                    </p>
                                   </div>
-                                  <div>
-                                    <label htmlFor="amount-input" className="text-xs font-medium text-muted-foreground">
-                                      Amount (₹){totalPayable != null ? ` — Remaining: ₹${Math.max(0, totalPayable - totalPaid).toLocaleString('en-IN')}` : ''}
-                                    </label>
-                                    <input
-                                      id="amount-input"
-                                      type="number"
-                                      min={MIN_AMOUNT}
-                                      max={MAX_AMOUNT}
-                                      value={fee.formAmount}
-                                      onChange={e => dispatchFee({ type: 'SET_AMOUNT', value: e.target.value })}
-                                      placeholder={totalPayable != null ? `e.g. ${Math.max(0, totalPayable - totalPaid)}` : 'Enter amount'}
-                                      className="w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                                    />
-                                  </div>
+                                )}
+                                <div>
+                                  <label htmlFor="amount-input" className="text-xs font-medium text-muted-foreground">
+                                    Amount (₹){totalPayable != null ? ` — ${nextInstallment === 2 ? 'Required' : 'Remaining'}: ₹${Math.max(0, totalPayable - totalPaid).toLocaleString('en-IN')}` : ''}
+                                  </label>
+                                  <input
+                                    id="amount-input"
+                                    type="number"
+                                    min={MIN_AMOUNT}
+                                    max={totalPayable != null ? Math.max(0, totalPayable - totalPaid) : MAX_AMOUNT}
+                                    value={fee.formAmount}
+                                    onChange={e => dispatchFee({ type: 'SET_AMOUNT', value: e.target.value })}
+                                    placeholder={totalPayable != null ? `${nextInstallment === 2 ? 'Required' : 'Max'}: ₹${Math.max(0, totalPayable - totalPaid).toLocaleString('en-IN')}` : 'Enter amount'}
+                                    readOnly={nextInstallment === 2}
+                                    className={`w-full mt-1 px-2 py-1.5 text-sm border border-input rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary ${nextInstallment === 2 ? 'cursor-not-allowed opacity-75' : ''}`}
+                                  />
+                                  {nextInstallment === 2 && (
+                                    <p className="text-xs text-muted-foreground mt-1">Amount is fixed for 2nd installment</p>
+                                  )}
                                 </div>
                                 <div>
                                   <label className="text-xs font-medium text-muted-foreground">Mode</label>
@@ -1751,15 +1831,22 @@ export function StudentsList() {
                               <p className="text-xs text-green-600 dark:text-green-400 text-center">✓ Payment recorded successfully!</p>
                             )}
 
-                            {/* Add button — hidden when fully paid or both installments recorded */}
-                            {!isFullyPaid && paidInstallments.size < 2 && !fee.showForm && (
+                            {/* Add button — hidden when fully paid */}
+                            {!isFullyPaid && !fee.showForm && (
                               <button
-                                onClick={() => dispatchFee({ type: 'TOGGLE_FORM', nextInstallment })}
+                                onClick={() => {
+                                  dispatchFee({ type: 'TOGGLE_FORM' })
+                                  // Pre-fill amount for 2nd installment
+                                  if (nextInstallment === 2 && totalPayable) {
+                                    const remaining = Math.max(0, totalPayable - totalPaid)
+                                    dispatchFee({ type: 'SET_AMOUNT', value: remaining.toString() })
+                                  }
+                                }}
                                 aria-label="Add payment"
                                 className="w-full flex items-center justify-center gap-1 text-xs bg-primary text-primary-foreground px-3 py-2 rounded-lg hover:bg-primary/90 transition-colors"
                               >
                                 <Plus className="w-3.5 h-3.5" />
-                                Add {nextInstallment === 1 ? '1st' : '2nd'} Installment
+                                {paidInstallments.size === 0 ? 'Add Payment' : 'Add 2nd Installment'}
                               </button>
                             )}
                           </>
