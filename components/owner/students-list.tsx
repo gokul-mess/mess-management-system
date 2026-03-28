@@ -206,6 +206,8 @@ export function StudentsList() {
     setFetchError(null)
     
     try {
+      const today = new Date().toISOString().split('T')[0]
+      
       const { data, error } = await supabase
         .from('users')
         .select('*, mess_periods!mess_periods_user_id_fkey(meal_plan, is_active, end_date)')
@@ -213,14 +215,23 @@ export function StudentsList() {
         .order('unique_short_id', { ascending: true })
 
       if (error) throw error
+      
       // Merge active mess_period meal_plan and end_date into each student
+      // Calculate active status based on mess_periods.end_date >= today AND mess_periods.is_active = true
       const merged = (data || []).map((s: Record<string, unknown>) => {
         const periods = s.mess_periods as { meal_plan: string; is_active: boolean; end_date: string }[] | null
         const activePeriod = periods?.find(p => p.is_active)
+        
+        // Calculate active status: has active period AND end_date >= today
+        const calculatedIsActive = activePeriod 
+          ? activePeriod.end_date >= today && activePeriod.is_active
+          : false
+        
         return {
           ...s,
           meal_plan: activePeriod?.meal_plan ?? s.meal_plan,
           mess_end_date: activePeriod?.end_date ?? undefined,
+          is_active: calculatedIsActive, // Override with calculated status
         } as Student
       })
       setStudents(merged)
@@ -1264,7 +1275,7 @@ export function StudentsList() {
                     
                     {/* Manual Active Status Toggle */}
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">Manual Override:</span>
+                      <span className="text-xs text-muted-foreground">Manual Override (Mess Period):</span>
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
                           type="checkbox"
@@ -1272,10 +1283,12 @@ export function StudentsList() {
                           onChange={async (e) => {
                             const newStatus = e.target.checked
                             try {
+                              // Update mess_periods.is_active instead of users.is_active
                               const { error } = await supabase
-                                .from('users')
+                                .from('mess_periods')
                                 .update({ is_active: newStatus })
-                                .eq('id', selectedStudent.id)
+                                .eq('user_id', selectedStudent.id)
+                                .eq('is_active', !newStatus) // Update the currently active/inactive period
                               
                               if (error) throw error
                               
@@ -1284,7 +1297,7 @@ export function StudentsList() {
                               await fetchStudents()
                             } catch (err) {
                               console.error('Error updating status:', err)
-                              alert('Failed to update status')
+                              alert('Failed to update mess period status')
                             }
                           }}
                           className="sr-only peer"
@@ -1388,11 +1401,34 @@ export function StudentsList() {
                                 setMessPeriodSaving(true)
                                 setMessPeriodSaveError(null)
                                 try {
+                                  // Get previous mess period's extra meals count (debt)
+                                  const { data: prevPeriod } = await supabase
+                                    .from('mess_periods')
+                                    .select('extra_meals_count')
+                                    .eq('user_id', selectedStudent.id)
+                                    .eq('is_active', true)
+                                    .maybeSingle()
+                                  
+                                  const extraMealsDebt = prevPeriod?.extra_meals_count || 0
+                                  const baseDays = 30
+                                  const purchasedDays = baseDays
+                                  const deductedDays = extraMealsDebt
+                                  const creditedDays = Math.max(0, purchasedDays - deductedDays)
+                                  
+                                  // Show transparency message if there's debt
+                                  if (extraMealsDebt > 0) {
+                                    const confirmMsg = `Recharge Summary:\n\nPurchased: ${purchasedDays} days\nDeducted: ${deductedDays} days (previous extra meals debt)\nCredited: ${creditedDays} days\n\nDo you want to proceed?`
+                                    if (!confirm(confirmMsg)) {
+                                      setMessPeriodSaving(false)
+                                      return
+                                    }
+                                  }
+                                  
                                   // Fetch approved leave days for this student to extend the end date
                                   const startDateStr = messPeriodEditForm.start_date
                                   const baseEnd = new Date(startDateStr)
-                                  // +29 gives exactly 30 inclusive days (start day counts as day 1)
-                                  baseEnd.setDate(baseEnd.getDate() + 29)
+                                  // Use credited days instead of fixed 30
+                                  baseEnd.setDate(baseEnd.getDate() + creditedDays - 1)
                                   const baseEndStr = baseEnd.toISOString().split('T')[0]
 
                                   // Get approved leaves from DB
@@ -1404,7 +1440,7 @@ export function StudentsList() {
                                     .gte('end_date', startDateStr)
                                     .lte('start_date', baseEndStr)
 
-                                  // Sum leave days that overlap with the base 30-day window
+                                  // Sum leave days that overlap with the base credited-day window
                                   const periodStart = new Date(startDateStr)
                                   const periodEnd = new Date(baseEndStr)
                                   const totalLeaveDays = (leavesData ?? []).reduce((sum, leave) => {
@@ -1418,9 +1454,9 @@ export function StudentsList() {
                                     return sum
                                   }, 0)
 
-                                  // end_date = start + 29 + leave days (30 base days + leave extension)
+                                  // end_date = start + (credited days - 1) + leave days
                                   const computedEnd = new Date(startDateStr)
-                                  computedEnd.setDate(computedEnd.getDate() + 29 + totalLeaveDays)
+                                  computedEnd.setDate(computedEnd.getDate() + creditedDays - 1 + totalLeaveDays)
                                   const computedEndStr = computedEnd.toISOString().split('T')[0]
 
                                   // Always deactivate ALL existing active periods first
@@ -1432,7 +1468,7 @@ export function StudentsList() {
                                     .eq('is_active', true)
                                   if (deactivateError) throw deactivateError
 
-                                  // Insert a fresh active period
+                                  // Insert a fresh active period with extra_meals_count reset to 0
                                   const { error } = await supabase
                                     .from('mess_periods')
                                     .insert({
@@ -1442,6 +1478,7 @@ export function StudentsList() {
                                       end_date: computedEndStr,
                                       original_end_date: baseEndStr,
                                       is_active: true,
+                                      extra_meals_count: 0, // Reset debt for new period
                                     })
                                   if (error) throw error
                                   // Refetch the active period to update the modal

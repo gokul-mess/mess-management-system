@@ -18,6 +18,8 @@ import { useUIStore } from '@/store/ui-store'
 import { useAuthStore } from '@/store/auth-store'
 import { useState, useEffect } from 'react'
 import { LeaveRequests } from '@/components/owner/leave-requests'
+import { createClient } from '@/lib/supabase/client'
+import { runMaintenanceTasks, shouldRunMaintenance, updateMaintenanceTimestamp } from '@/lib/subscription-maintenance'
 import { 
   LayoutDashboard, 
   Users, 
@@ -82,6 +84,19 @@ export default function OwnerDashboard() {
   useEffect(() => {
     if (profile) setUser(profile)
   }, [profile, setUser])
+  
+  // Run maintenance tasks on dashboard load (max once per hour)
+  useEffect(() => {
+    const runMaintenance = async () => {
+      if (shouldRunMaintenance()) {
+        const supabase = createClient()
+        await runMaintenanceTasks(supabase)
+        updateMaintenanceTimestamp()
+      }
+    }
+    
+    runMaintenance()
+  }, [])
   
   const [notifications] = useState<Array<{
     type: string; title: string; message: string; time: string

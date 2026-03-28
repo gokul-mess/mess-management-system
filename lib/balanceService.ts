@@ -10,9 +10,12 @@ import type { BalanceDaysInput } from '@/lib/balance'
  *   leaves, but the usable mess days never exceed 30.
  * - consumedDays = meals with status CONSUMED within the base 30-day window.
  * - leaveDays = approved leave days overlapping the base 30-day window.
- * - balanceDays = 30 - consumedDays - leaveDays  (see lib/balance.ts)
+ * - extraMeals = meals consumed after subscription expired (debt).
+ * - balanceDays = 30 - consumedDays - leaveDays - extraMeals (see lib/balance.ts)
  *   Leave days are excluded from balance because the student is absent —
  *   they neither consume nor have those days available.
+ *   Extra meals create debt and can make balance negative.
+ * - SKIPPED meals (unconsumed without leave) do NOT affect balance.
  * - daysRemaining (calendar) is computed in the page from end_date (which
  *   includes leave extensions) and is a separate concept from balanceDays.
  */
@@ -22,7 +25,7 @@ export async function fetchBalanceDaysData(userId: string): Promise<BalanceDaysI
   // Get the active mess period — use is_active = true as single source of truth
   const { data: messPeriod, error: messPeriodError } = await supabase
     .from('mess_periods')
-    .select('start_date, end_date, original_end_date')
+    .select('start_date, end_date, original_end_date, extra_meals_count')
     .eq('user_id', userId)
     .eq('is_active', true)
     .maybeSingle()
@@ -30,7 +33,7 @@ export async function fetchBalanceDaysData(userId: string): Promise<BalanceDaysI
   if (messPeriodError) throw messPeriodError
 
   if (!messPeriod?.start_date) {
-    return { totalDays: null, consumedDays: 0, leaveDays: 0 }
+    return { totalDays: null, consumedDays: 0, leaveDays: 0, extraMeals: 0 }
   }
 
   const periodStart = messPeriod.start_date
@@ -39,7 +42,7 @@ export async function fetchBalanceDaysData(userId: string): Promise<BalanceDaysI
   const baseEnd = messPeriod.original_end_date ?? messPeriod.end_date
 
   if (!baseEnd) {
-    return { totalDays: null, consumedDays: 0, leaveDays: 0 }
+    return { totalDays: null, consumedDays: 0, leaveDays: 0, extraMeals: 0 }
   }
 
   // Run both queries in parallel, scoped to the base 30-day window
@@ -86,5 +89,5 @@ export async function fetchBalanceDaysData(userId: string): Promise<BalanceDaysI
     return sum
   }, 0)
 
-  return { totalDays, consumedDays, leaveDays }
+  return { totalDays, consumedDays, leaveDays, extraMeals: messPeriod.extra_meals_count ?? 0 }
 }
