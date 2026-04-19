@@ -5,6 +5,7 @@ import { ManualVerify } from '@/components/owner/manual-verify'
 import { Hash, Sparkles, CheckCircle, XCircle, Clock, UserCheck, Calendar, Utensils, AlertTriangle } from 'lucide-react'
 import { getTimeAgo } from '@/utils/format'
 import { MealPlanBadge } from '@/components/shared/meal-plan-badge'
+import { StudentAvatar } from '@/components/shared/student-avatar'
 import { createClient } from '@/lib/supabase/client'
 import { markSkippedMeals } from '@/lib/subscription-maintenance'
 export { MealPlanBadge } from '@/components/shared/meal-plan-badge'
@@ -12,6 +13,7 @@ export { MealPlanBadge } from '@/components/shared/meal-plan-badge'
 interface VerificationData {
   name: string
   id: number
+  photoPath: string | null
   mealType: string
   method: string
   timestamp: string
@@ -42,6 +44,7 @@ export function VerifyContent() {
       student?: {
         full_name?: string
         unique_short_id?: number
+        photo_path?: string | null
       }
       mealType?: string
       method?: string
@@ -63,6 +66,7 @@ export function VerifyContent() {
     setLastVerified({
       name: verificationData.student?.full_name || 'Unknown',
       id: verificationData.student?.unique_short_id || 0,
+      photoPath: verificationData.student?.photo_path ?? null,
       mealType: verificationData.mealType || 'UNKNOWN',
       method: verificationData.method === 'OTP' ? 'Parcel OTP' : 'Student ID',
       timestamp: new Date().toISOString(),
@@ -202,7 +206,11 @@ function LastVerifiedCard({ data }: { data: VerificationData }) {
             {/* Student Photo */}
             <div className="relative flex-shrink-0">
               <div className="w-24 h-24 sm:w-32 sm:h-32 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-4 border-primary/30 group-hover:border-primary/50 group-hover:scale-105 transition-all duration-300 shadow-2xl">
-                <span className="text-3xl sm:text-4xl font-bold text-primary">{data.name.charAt(0)}</span>
+                <StudentAvatar
+                  photoPath={data.photoPath}
+                  fullName={data.name}
+                  fallback={<span className="text-3xl sm:text-4xl font-bold text-primary">{data.name.charAt(0)}</span>}
+                />
               </div>
               {data.success && (
                 <div className="absolute -bottom-1 -right-1 w-8 h-8 sm:w-10 sm:h-10 bg-green-500 rounded-full flex items-center justify-center border-2 border-white dark:border-zinc-900 animate-in zoom-in duration-500 shadow-lg">

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useAnimatedCounter } from '@/hooks/use-animated-counter'
 import { getTimeAgo } from '@/utils/format'
+import { StudentAvatar } from '@/components/shared/student-avatar'
 
 interface DashboardContentProps {
   stats: {
@@ -34,6 +35,7 @@ interface DashboardContentProps {
     users?: {
       full_name: string
       unique_short_id: number
+      photo_path?: string | null
     }
   }> | null
   isLoading: boolean
@@ -378,6 +380,7 @@ function MealLogRow({
     users?: {
       full_name: string
       unique_short_id: number
+      photo_path?: string | null
     }
   }
   index: number
@@ -391,7 +394,11 @@ function MealLogRow({
 
       <div className="relative">
         <div className="w-12 h-12 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-2 border-primary/20 group-hover:border-primary/50 group-hover:scale-110 transition-all duration-300 shadow-lg relative z-10">
-          <span className="text-lg font-bold text-primary">{log.users?.full_name?.charAt(0) || '?'}</span>
+          <StudentAvatar
+            photoPath={log.users?.photo_path}
+            fullName={log.users?.full_name}
+            fallback={<span className="text-lg font-bold text-primary">{log.users?.full_name?.charAt(0) || '?'}</span>}
+          />
         </div>
         <div className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping opacity-0 group-hover:opacity-75" style={{ animationDuration: '2s' }} />
       </div>

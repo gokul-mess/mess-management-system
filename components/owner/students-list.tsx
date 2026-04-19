@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback, useReducer, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { 
-  Search, 
-  Download, 
-  User, 
+import {
+  Search,
+  Download,
+  User,
   CheckCircle,
   XCircle,
   Eye,
@@ -19,7 +19,8 @@ import {
   FileText,
   CreditCard,
   Plus,
-  Utensils
+  Utensils,
+  Camera
 } from 'lucide-react'
 import { useAsyncOperation } from '@/hooks/use-error-handler'
 import { validateRequired, validateNumberRange, parseError, ErrorResult } from '@/lib/error-handler'
@@ -28,6 +29,8 @@ import { LoadingState } from '@/components/ui/loading-state'
 import { generateProfessionalReport } from '@/lib/professional-report-generator'
 import { generateAttendanceExcel } from '@/lib/excel-generator'
 import { MealPlanBadge } from '@/components/shared/meal-plan-badge'
+import { StudentAvatar } from '@/components/shared/student-avatar'
+import { InAppCameraCapture } from '@/components/shared/in-app-camera-capture'
 import { FeePaymentStatus, PAYMENT_SUCCESS_TIMEOUT, MAX_NOTE_LENGTH, MIN_AMOUNT, MAX_AMOUNT, type FeePayment } from '@/components/shared/fee-payment-status'
 import { MessCycleTracker } from '@/components/shared/mess-cycle-tracker'
 import { WeeklyProgressBar } from '@/components/shared/weekly-progress-bar'
@@ -39,6 +42,7 @@ import {
   type DateRangeType 
 } from '@/lib/mess-period-utils'
 import { fetchReportData, transformForPDFReport, transformForExcelReport } from '@/lib/report-data-fetcher'
+import { uploadStudentPhoto, deleteStudentPhoto } from '@/lib/student-photo'
 
 type PaymentMode = 'UPI' | 'CASH'
 
@@ -100,6 +104,7 @@ interface Student {
   id: string
   full_name: string
   unique_short_id: number
+  photo_path?: string | null
   phone?: string
   address?: string
   meal_plan?: 'L' | 'D' | 'DL'
@@ -129,6 +134,9 @@ export function StudentsList() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [isEditingStudent, setIsEditingStudent] = useState(false)
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const [cameraOpen, setCameraOpen] = useState(false)
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set())
   const [showFilterDropdown, setShowFilterDropdown] = useState(false)
   
@@ -355,6 +363,7 @@ export function StudentsList() {
 
     // Fetch fee payments and open modal
     dispatchFee({ type: 'RESET' })
+    setPhotoError(null)
     setShowDetailModal(true)
     fetchFeePayments(student.id)
   }
@@ -485,6 +494,41 @@ export function StudentsList() {
   useEffect(() => {
     return () => { if (feeSuccessTimer.current) clearTimeout(feeSuccessTimer.current) }
   }, [])
+
+  const handleCameraCapture = async (blob: Blob) => {
+    if (!selectedStudent) throw new Error('No student selected')
+
+    setPhotoUploading(true)
+    setPhotoError(null)
+    try {
+      const { path } = await uploadStudentPhoto({ userId: selectedStudent.id, file: blob })
+      setSelectedStudent({ ...selectedStudent, photo_path: path })
+      await fetchStudents()
+    } catch (err) {
+      const msg = parseError(err).message
+      setPhotoError(msg)
+      throw new Error(msg)
+    } finally {
+      setPhotoUploading(false)
+    }
+  }
+
+  const handlePhotoRemove = async () => {
+    if (!selectedStudent?.photo_path) return
+    if (!window.confirm("Remove this student's photo?")) return
+
+    setPhotoUploading(true)
+    setPhotoError(null)
+    try {
+      await deleteStudentPhoto(selectedStudent.id)
+      setSelectedStudent({ ...selectedStudent, photo_path: null })
+      await fetchStudents()
+    } catch (err) {
+      setPhotoError(parseError(err).message)
+    } finally {
+      setPhotoUploading(false)
+    }
+  }
 
   const handleSaveStudentEdit = async () => {
     if (!selectedStudent) return
@@ -1082,7 +1126,11 @@ export function StudentsList() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="relative w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-2 border-primary/20 group-hover:border-primary/40 transition-all duration-300 group-hover:scale-110">
-                            <User className="w-5 h-5 text-primary" />
+                            <StudentAvatar
+                              photoPath={student.photo_path}
+                              fullName={student.full_name}
+                              fallback={<User className="w-5 h-5 text-primary" />}
+                            />
                             <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/10 transition-colors duration-300" />
                           </div>
                           <div>
@@ -1259,14 +1307,45 @@ export function StudentsList() {
             {/* Modal Header */}
             <div className="p-6 border-b border-border flex items-center justify-between bg-gradient-to-r from-primary/10 to-primary/5 flex-shrink-0">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-4 border-primary/20">
-                  <User className="w-8 h-8 text-primary" />
+                <div className="relative">
+                  <div className="w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-4 border-primary/20">
+                    {photoUploading ? (
+                      <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <StudentAvatar
+                        photoPath={selectedStudent.photo_path}
+                        fullName={selectedStudent.full_name}
+                        fallback={<User className="w-8 h-8 text-primary" />}
+                      />
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCameraOpen(true)}
+                    disabled={photoUploading}
+                    title={selectedStudent.photo_path ? 'Replace photo' : 'Take photo'}
+                    className="absolute -bottom-1 -right-1 w-7 h-7 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </button>
                 </div>
                 <div>
                   <h3 className="text-xl font-bold">{selectedStudent.full_name}</h3>
                   <p className="text-sm text-muted-foreground">
                     Student ID: #{selectedStudent.unique_short_id}
                   </p>
+                  {selectedStudent.photo_path && !photoUploading && (
+                    <button
+                      type="button"
+                      onClick={handlePhotoRemove}
+                      className="mt-1 text-xs text-red-600 hover:underline"
+                    >
+                      Remove photo
+                    </button>
+                  )}
+                  {photoError && (
+                    <p className="mt-1 text-xs text-red-600">{photoError}</p>
+                  )}
                 </div>
               </div>
               <button
@@ -2085,6 +2164,13 @@ export function StudentsList() {
           </div>
         </div>
       )}
+
+      <InAppCameraCapture
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={handleCameraCapture}
+        title={selectedStudent ? `Photo — ${selectedStudent.full_name}` : 'Take Photo'}
+      />
     </div>
   )
 }

@@ -18,6 +18,7 @@ interface ReportData {
     id: string
     full_name: string
     unique_short_id: number
+    photo_path?: string | null
     meal_plan?: string
   }
   messPeriod?: {

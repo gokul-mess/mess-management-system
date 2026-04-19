@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useAnimatedCounter } from '@/hooks/use-animated-counter'
 import { useBalanceDays } from '@/hooks/use-balance-days'
 import { MenuCard } from './menu-card'
+import { StudentAvatar } from '@/components/shared/student-avatar'
 import {
   Clock,
   CheckCircle,
@@ -130,6 +131,7 @@ interface StudentDashboardContentProps {
     id: string
     full_name?: string
     unique_short_id?: number
+    photo_path?: string | null
   } | null
   hasLunch: boolean
   hasDinner: boolean
@@ -205,7 +207,11 @@ export function StudentDashboardContent({
           <div className="relative group/avatar">
             <div className="absolute inset-0 bg-gradient-to-r from-white/40 to-white/20 rounded-2xl blur-xl group-hover/avatar:blur-2xl transition-all" />
             <div className="relative w-20 h-20 lg:w-24 lg:h-24 bg-white/20 backdrop-blur-sm rounded-2xl overflow-hidden flex items-center justify-center border-4 border-white/30 shadow-2xl animate-in zoom-in duration-500 hover:scale-110 hover:rotate-6 transition-all">
-              <User className="w-10 h-10 lg:w-12 lg:h-12 text-white" />
+              <StudentAvatar
+                photoPath={profile?.photo_path}
+                fullName={profile?.full_name}
+                fallback={<User className="w-10 h-10 lg:w-12 lg:h-12 text-white" />}
+              />
             </div>
           </div>
         </div>

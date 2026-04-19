@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { parseError } from '@/lib/error-handler'
+import { StudentAvatar } from '@/components/shared/student-avatar'
 import { FeePaymentStatus, type FeePayment } from '@/components/shared/fee-payment-status'
 import { MessCycleTracker } from '@/components/shared/mess-cycle-tracker'
 import { getPayableAmount, DEFAULT_PRICING, type MealPlanPricing } from '@/lib/pricing-utils'
@@ -22,6 +23,7 @@ interface ProfileContentProps {
     id: string
     full_name?: string
     unique_short_id?: number
+    photo_path?: string | null
     phone?: string | null
     address?: string | null
     meal_plan?: string | null
@@ -121,7 +123,11 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
             {/* Profile Photo */}
             <div className="relative">
               <div className="w-28 h-28 bg-white dark:bg-zinc-900 rounded-2xl overflow-hidden flex items-center justify-center border-4 border-white dark:border-zinc-900 shadow-2xl">
-                <User className="w-14 h-14 text-muted-foreground" />
+                <StudentAvatar
+                  photoPath={profile?.photo_path}
+                  fullName={profile?.full_name}
+                  fallback={<User className="w-14 h-14 text-muted-foreground" />}
+                />
               </div>
             </div>
 
