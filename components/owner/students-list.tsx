@@ -117,10 +117,6 @@ interface Student {
   mess_original_end_date?: string
   /** Approved leave days count for the current mess period */
   approved_leave_days?: number
-  profile_edit_allowed?: boolean
-  photo_update_allowed?: boolean
-  editable_fields?: string[]
-  permission_expires_at?: string
   created_at: string
 }
 

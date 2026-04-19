@@ -12,10 +12,6 @@ export interface UserProfile {
   is_active: boolean;
   subscription_start_date?: string;
   subscription_end_date?: string;
-  profile_edit_allowed?: boolean;
-  photo_update_allowed?: boolean;
-  editable_fields?: string[];
-  permission_expires_at?: string;
   created_at?: string;
 }
 
