@@ -100,7 +100,6 @@ interface Student {
   id: string
   full_name: string
   unique_short_id: number
-  photo_url?: string
   phone?: string
   address?: string
   meal_plan?: 'L' | 'D' | 'DL'
@@ -1083,16 +1082,7 @@ export function StudentsList() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="relative w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-2 border-primary/20 group-hover:border-primary/40 transition-all duration-300 group-hover:scale-110">
-                            {student.photo_url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={student.photo_url}
-                                alt={student.full_name || 'Student'}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <User className="w-5 h-5 text-primary" />
-                            )}
+                            <User className="w-5 h-5 text-primary" />
                             <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/10 transition-colors duration-300" />
                           </div>
                           <div>
@@ -1270,16 +1260,7 @@ export function StudentsList() {
             <div className="p-6 border-b border-border flex items-center justify-between bg-gradient-to-r from-primary/10 to-primary/5 flex-shrink-0">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/5 rounded-full overflow-hidden flex items-center justify-center border-4 border-primary/20">
-                  {selectedStudent.photo_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={selectedStudent.photo_url}
-                      alt={selectedStudent.full_name || 'Student'}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <User className="w-8 h-8 text-primary" />
-                  )}
+                  <User className="w-8 h-8 text-primary" />
                 </div>
                 <div>
                   <h3 className="text-xl font-bold">{selectedStudent.full_name}</h3>

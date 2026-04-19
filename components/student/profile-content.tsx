@@ -3,11 +3,9 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import {
-  CheckCircle,
   Utensils,
   User,
   AlertCircle,
-  Sparkles,
   LogOut,
   Hash,
   CreditCard,
@@ -24,23 +22,17 @@ interface ProfileContentProps {
     id: string
     full_name?: string
     unique_short_id?: number
-    photo_url?: string | null
     phone?: string | null
     address?: string | null
     meal_plan?: string | null
     subscription_start_date?: string | null
     subscription_end_date?: string | null
     is_active?: boolean
-    photo_update_allowed?: boolean
-    permission_expires_at?: string | null
   } | null
   onSignOut: () => void
 }
 
 export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
-  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
   const [feePayments, setFeePayments] = useState<FeePayment[]>([])
   const [paymentsLoading, setPaymentsLoading] = useState(true)
   const [paymentsError, setPaymentsError] = useState<string | null>(null)
@@ -102,62 +94,6 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.id])
 
-  const canUpdatePhoto = profile?.photo_update_allowed &&
-    profile?.permission_expires_at &&
-    new Date(profile.permission_expires_at) > new Date()
-
-  const getTimeRemaining = () => {
-    if (!profile?.permission_expires_at) return null
-    const diff = new Date(profile.permission_expires_at).getTime() - Date.now()
-    if (diff <= 0) return 'Expired'
-    const minutes = Math.floor(diff / 60000)
-    const hours = Math.floor(minutes / 60)
-    const days = Math.floor(hours / 24)
-    if (days > 0) return `${days} day${days > 1 ? 's' : ''}`
-    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''}`
-    return `${minutes} minute${minutes > 1 ? 's' : ''}`
-  }
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !profile?.id) return
-
-    if (!canUpdatePhoto) {
-      setError('You do not have permission to update your photo. Please contact the mess owner.')
-      return
-    }
-    if (!file.type.startsWith('image/')) { setError('Please upload an image file'); return }
-    if (file.size > 2 * 1024 * 1024) { setError('Image size must be less than 2MB'); return }
-
-    setIsUploadingPhoto(true)
-    setError(null)
-
-    try {
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${profile.id}-${Date.now()}.${fileExt}`
-      const filePath = `avatars/${fileName}`
-
-      const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true })
-      if (uploadError) throw uploadError
-
-      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath)
-
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ photo_url: publicUrl, photo_update_allowed: false, permission_expires_at: null })
-        .eq('id', profile.id)
-      if (updateError) throw updateError
-
-      setSuccess(true)
-      setTimeout(() => { setSuccess(false); window.location.reload() }, 2000)
-    } catch (err) {
-      console.error('Error uploading photo:', err)
-      setError('Failed to upload photo. Please try again.')
-    } finally {
-      setIsUploadingPhoto(false)
-    }
-  }
-
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
       {/* Header */}
@@ -175,41 +111,6 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
         </div>
       </div>
 
-      {/* Success */}
-      {success && (
-        <div className="bg-green-50 dark:bg-green-950/20 border-2 border-green-500/30 rounded-2xl p-4 animate-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center gap-3">
-            <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
-            <p className="text-sm text-green-600 dark:text-green-400 font-medium">Photo updated successfully!</p>
-          </div>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="bg-red-50 dark:bg-red-950/20 border-2 border-red-500/30 rounded-2xl p-4 animate-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0" />
-            <p className="text-sm text-red-600 dark:text-red-400 font-medium">{error}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Photo Upload Permission Notice */}
-      {canUpdatePhoto && (
-        <div className="bg-blue-50 dark:bg-blue-950/20 border-2 border-blue-500/30 rounded-2xl p-5 animate-in slide-in-from-top-2 duration-300">
-          <div className="flex items-start gap-3">
-            <Sparkles className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5 animate-pulse" />
-            <div>
-              <p className="text-sm font-bold text-blue-900 dark:text-blue-100 mb-1">Photo Update Enabled</p>
-              <p className="text-xs text-blue-700 dark:text-blue-300">
-                You can update your profile photo. Permission expires in {getTimeRemaining()}.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Profile Card */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-border shadow-xl overflow-hidden">
         <div className="h-32 bg-gradient-to-r from-orange-500/20 via-amber-500/20 to-yellow-500/20 relative overflow-hidden">
@@ -218,23 +119,10 @@ export function ProfileContent({ profile, onSignOut }: ProfileContentProps) {
         <div className="px-6 pb-6">
           <div className="flex flex-col items-center -mt-16">
             {/* Profile Photo */}
-            <div className="relative group">
+            <div className="relative">
               <div className="w-28 h-28 bg-white dark:bg-zinc-900 rounded-2xl overflow-hidden flex items-center justify-center border-4 border-white dark:border-zinc-900 shadow-2xl">
-                {isUploadingPhoto ? (
-                  <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                ) : profile?.photo_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={profile.photo_url} alt={profile.full_name || 'Student'} className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-14 h-14 text-muted-foreground" />
-                )}
+                <User className="w-14 h-14 text-muted-foreground" />
               </div>
-              {canUpdatePhoto && (
-                <label className="absolute bottom-0 right-0 w-10 h-10 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-full flex items-center justify-center cursor-pointer shadow-lg hover:shadow-xl transition-all hover:scale-110 opacity-0 group-hover:opacity-100">
-                  <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" disabled={isUploadingPhoto} />
-                  <Sparkles className="w-5 h-5 text-white" />
-                </label>
-              )}
             </div>
 
             <h3 className="text-2xl font-bold mt-4">{profile?.full_name || 'Student'}</h3>

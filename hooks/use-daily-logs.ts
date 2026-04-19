@@ -4,7 +4,7 @@ import { queryKeys } from '@/lib/query-keys'
 import type { DailyLog } from '@/types'
 
 type DailyLogWithUser = DailyLog & {
-  users: { full_name: string; unique_short_id: number; photo_url: string | null }
+  users: { full_name: string; unique_short_id: number }
 }
 
 export function dailyLogsQueryOptions(date: string) {
@@ -14,7 +14,7 @@ export function dailyLogsQueryOptions(date: string) {
       const supabase = createClient()
       const { data, error } = await supabase
         .from('daily_logs')
-        .select('*, users(full_name, unique_short_id, photo_url)')
+        .select('*, users(full_name, unique_short_id)')
         .eq('date', date)
         .order('created_at', { ascending: false })
 

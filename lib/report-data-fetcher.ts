@@ -19,7 +19,6 @@ export interface FetchedReportData {
     id: string
     full_name: string
     unique_short_id: number
-    photo_url: string | null
     created_at: string
   }
   messPeriod: MessPeriod | null
@@ -114,7 +113,6 @@ export async function fetchReportData(
       id: studentData.id,
       full_name: studentData.full_name || 'Student',
       unique_short_id: studentData.unique_short_id || 0,
-      photo_url: studentData.photo_url,
       created_at: studentData.created_at
     },
     messPeriod,
@@ -137,7 +135,6 @@ export function transformForPDFReport(
       id: data.student.id,
       full_name: data.student.full_name,
       unique_short_id: data.student.unique_short_id,
-      photo_url: data.student.photo_url,
       meal_plan: data.messPeriod?.meal_plan || 'DL'
     },
     messPeriod: data.messPeriod

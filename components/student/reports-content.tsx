@@ -31,7 +31,6 @@ interface ReportsContentProps {
     id: string
     full_name?: string
     unique_short_id?: number
-    photo_url?: string | null
     meal_plan?: string | null
     created_at?: string | null
   } | null

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,7 +9,6 @@ import {
   Phone,
   MapPin,
   Calendar,
-  Upload,
   Save,
   X,
   Edit2,
@@ -28,7 +27,6 @@ interface ProfileData {
   id: string
   full_name: string
   unique_short_id: number
-  photo_url?: string | null
   created_at?: string
   email?: string
   phone?: string
@@ -37,7 +35,6 @@ interface ProfileData {
 
 export function ProfilePage({ profile }: { profile: ProfileData | null }) {
   const [isEditing, setIsEditing] = useState(false)
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState('')
   const [formData, setFormData] = useState({
     full_name: profile?.full_name || '',
@@ -53,8 +50,6 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
     monthlyRevenue: 0,
     thisMonth: 0
   })
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  
   const supabase = createClient()
   const { loading: saving, error: saveError, success: saveSuccess, clearMessages } = useAsyncOperation('Save Profile')
 
@@ -165,17 +160,6 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
     
     setValidationErrors(errors)
     return Object.keys(errors).length === 0
-  }
-
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string)
-      }
-      reader.readAsDataURL(file)
-    }
   }
 
   const handleSave = async () => {
@@ -328,40 +312,14 @@ export function ProfilePage({ profile }: { profile: ProfileData | null }) {
               {/* Profile Photo */}
               <div className="relative group/photo flex-shrink-0">
                 <div className="w-32 h-32 bg-white dark:bg-zinc-900 rounded-full overflow-hidden flex items-center justify-center border-4 border-white dark:border-zinc-900 shadow-xl relative">
-                  {profile?.photo_url || photoPreview ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={photoPreview || profile?.photo_url || ''}
-                      alt={profile?.full_name || 'Owner'}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover/photo:scale-110"
-                    />
-                  ) : (
-                    <span className="text-4xl font-bold text-primary">
-                      {profile?.full_name?.charAt(0) || 'O'}
-                    </span>
-                  )}
-                  
+                  <span className="text-4xl font-bold text-primary">
+                    {profile?.full_name?.charAt(0) || 'O'}
+                  </span>
+
                   {/* Animated border ring */}
                   <div className="absolute inset-0 rounded-full border-4 border-primary/0 group-hover/photo:border-primary/50 transition-all duration-500" />
                   <div className="absolute inset-0 rounded-full animate-ping opacity-0 group-hover/photo:opacity-20 bg-primary" style={{ animationDuration: '2s' }} />
                 </div>
-                
-                {/* Upload Overlay */}
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center opacity-0 group-hover/photo:opacity-100 transition-all duration-300 cursor-pointer backdrop-blur-sm"
-                >
-                  <Upload className="w-8 h-8 text-white mb-1 animate-bounce" />
-                  <p className="text-xs text-white font-medium">Change Photo</p>
-                </button>
-                
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePhotoUpload}
-                  className="hidden"
-                />
               </div>
 
               {/* Profile Info - On the banner */}

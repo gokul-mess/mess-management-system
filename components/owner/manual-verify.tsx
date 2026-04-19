@@ -17,7 +17,6 @@ interface StudentWithSubscription {
   id: string
   full_name: string
   unique_short_id: number
-  photo_url: string | null
   is_active: boolean
   mess_periods: Array<{
     id: string
@@ -64,7 +63,7 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
       const { data: student, error: studentError } = await supabase
         .from('users')
         .select(`
-          id, full_name, unique_short_id, photo_url, is_active,
+          id, full_name, unique_short_id, is_active,
           mess_periods!inner(
             id, meal_plan, end_date, start_date, extra_meals_count, is_active
           )
@@ -276,7 +275,7 @@ export function ManualVerify({ onSuccess }: ManualVerifyProps) {
         .select(`
           otp_id, user_id, expires_at, is_used,
           users!inner(
-            id, full_name, unique_short_id, photo_url, is_active,
+            id, full_name, unique_short_id, is_active,
             mess_periods!inner(
               id, meal_plan, end_date, start_date, extra_meals_count, is_active
             )
