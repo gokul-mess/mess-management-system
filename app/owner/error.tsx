@@ -11,7 +11,8 @@ export default function OwnerError({
   reset: () => void
 }) {
   useEffect(() => {
-    console.error('Owner portal error:', error)
+    // Report to error monitoring service (e.g. Sentry) in production
+    console.error(error)
   }, [error])
 
   return (

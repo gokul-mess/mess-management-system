@@ -21,34 +21,28 @@ export default function ServiceWorkerRegistration() {
           { scope: "/" }
         );
 
-        console.log("✅ SW registered, scope:", registration.scope);
-
-        // When a new SW is found, activate it immediately
         registration.addEventListener("updatefound", () => {
           const newWorker = registration.installing;
           if (!newWorker) return;
 
           newWorker.addEventListener("statechange", () => {
-            // New SW installed and old SW is still controlling the page
             if (
               newWorker.state === "installed" &&
               navigator.serviceWorker.controller
             ) {
-              console.log("[SW] New version available — reloading for update");
-              // Auto-reload to activate new SW immediately
+              // New SW version detected — reload to activate immediately
               window.location.reload();
             }
           });
         });
 
-        // Check for SW updates every 60 seconds (useful for long sessions)
+        // Poll for SW updates every 60 seconds during active sessions
         setInterval(() => registration.update(), 60 * 1000);
-      } catch (err) {
-        console.error("❌ SW registration failed:", err);
+      } catch {
+        // SW registration failed silently — app still works without it
       }
     };
 
-    // Register after page load to not block initial render
     if (document.readyState === "complete") {
       registerSW();
     } else {

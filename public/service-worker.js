@@ -24,10 +24,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
-      .then((cache) => {
-        console.log("[SW] Pre-caching static assets");
-        return cache.addAll(PRECACHE_ASSETS);
-      })
+      .then((cache) => cache.addAll(PRECACHE_ASSETS))
       .then(() => self.skipWaiting()) // activate immediately
   );
 });
@@ -45,10 +42,7 @@ self.addEventListener("activate", (event) => {
         Promise.all(
           keys
             .filter((key) => !validCaches.includes(key))
-            .map((key) => {
-              console.log("[SW] Deleting old cache:", key);
-              return caches.delete(key);
-            })
+            .map((key) => caches.delete(key))
         )
       )
       .then(() => self.clients.claim()) // take control immediately

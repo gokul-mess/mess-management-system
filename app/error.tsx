@@ -11,7 +11,8 @@ export default function Error({
   reset: () => void
 }) {
   useEffect(() => {
-    console.error('App error:', error)
+    // Report to error monitoring service (e.g. Sentry) in production
+    console.error(error)
   }, [error])
 
   return (
