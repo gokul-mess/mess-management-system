@@ -11,7 +11,8 @@ export default function StudentError({
   reset: () => void
 }) {
   useEffect(() => {
-    console.error('Student portal error:', error)
+    // Report to error monitoring service (e.g. Sentry) in production
+    console.error(error)
   }, [error])
 
   return (
