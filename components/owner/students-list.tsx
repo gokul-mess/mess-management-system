@@ -10,7 +10,6 @@ import {
   CheckCircle,
   XCircle,
   Eye,
-  Shield,
   Edit,
   Trash2,
   Calendar,
@@ -147,15 +146,6 @@ export function StudentsList() {
   const [itemsPerPage, setItemsPerPage] = useState(10)
   const [hoveredRow, setHoveredRow] = useState<string | null>(null)
   
-  // Use async operation hooks for different operations
-  const {
-    loading: permissionLoading,
-    error: permissionError,
-    success: permissionSuccess,
-    execute: executePermission,
-    clearMessages: clearPermissionMessages
-  } = useAsyncOperation('Save Permissions')
-  
   const {
     loading: editLoading,
     error: editError,
@@ -185,15 +175,6 @@ export function StudentsList() {
   const [fee, dispatchFee] = useReducer(feeReducer, INITIAL_FEE_STATE)
   const feeSuccessTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   
-  // Permission form state
-  const [permissionForm, setPermissionForm] = useState({
-    profile_edit_allowed: false,
-    photo_update_allowed: false,
-    editable_fields: [] as string[],
-    time_value: '24',
-    time_unit: 'hours' as 'minutes' | 'hours'
-  })
-
   // Student edit form state
   const [studentEditForm, setStudentEditForm] = useState({
     full_name: '',
@@ -317,21 +298,12 @@ export function StudentsList() {
 
   const openStudentDetail = async (student: Student) => {
     setSelectedStudent(student)
-    // Load current photo permission into form
-    setPermissionForm({
-      profile_edit_allowed: false,
-      photo_update_allowed: student.photo_update_allowed || false,
-      editable_fields: [],
-      time_value: '24',
-      time_unit: 'hours'
-    })
     // Load student data into edit form
     setStudentEditForm({
       full_name: student.full_name || '',
       phone: student.phone || '',
       address: student.address || ''
     })
-    clearPermissionMessages()
     clearEditMessages()
     setIsEditingStudent(false)
     
@@ -588,56 +560,6 @@ export function StudentsList() {
           phone: updatedStudent.phone || '',
           address: updatedStudent.address || ''
         })
-      }
-    })
-  }
-
-  const handleSavePermissions = async () => {
-    if (!selectedStudent) return
-    
-    clearPermissionMessages()
-    
-    // Validate time input
-    const timeValue = parseInt(permissionForm.time_value)
-    const validationError = validateNumberRange(
-      timeValue,
-      1,
-      permissionForm.time_unit === 'minutes' ? 10080 : 168,
-      `Duration (${permissionForm.time_unit})`
-    )
-    
-    if (permissionForm.photo_update_allowed && validationError) {
-      // Validation error will be shown by the hook
-      return
-    }
-    
-    await executePermission(async () => {
-      // Calculate expiry time if photo permission is enabled
-      let expiresAt = null
-      if (permissionForm.photo_update_allowed) {
-        const milliseconds = permissionForm.time_unit === 'minutes' 
-          ? timeValue * 60 * 1000 
-          : timeValue * 60 * 60 * 1000
-        expiresAt = new Date(Date.now() + milliseconds).toISOString()
-      }
-
-      const { error } = await supabase
-        .from('users')
-        .update({
-          photo_update_allowed: permissionForm.photo_update_allowed,
-          permission_expires_at: expiresAt
-        })
-        .eq('id', selectedStudent.id)
-
-      if (error) throw error
-      
-      // Refresh students list
-      await fetchStudents()
-      
-      // Update selected student
-      const updatedStudent = students.find(s => s.id === selectedStudent.id)
-      if (updatedStudent) {
-        setSelectedStudent(updatedStudent)
       }
     })
   }
@@ -1390,7 +1312,6 @@ export function StudentsList() {
                               phone: selectedStudent.phone || '',
                               address: selectedStudent.address || ''
                             })
-                            clearPermissionMessages()
                             clearEditMessages()
                           }}
                         >
@@ -1408,54 +1329,33 @@ export function StudentsList() {
                   </div>
 
                   {/* Status Badge */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      {selectedStudent.is_active ? (
-                        <span className="inline-flex items-center gap-2 text-sm bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 px-3 py-1.5 rounded-full">
-                          <CheckCircle className="w-4 h-4" />
-                          Active Subscription
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-2 text-sm bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 px-3 py-1.5 rounded-full">
-                          <XCircle className="w-4 h-4" />
-                          Inactive
-                        </span>
-                      )}
-                    </div>
-                    
-                    {/* Manual Active Status Toggle */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">Manual Override (Mess Period):</span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedStudent.is_active}
-                          onChange={async (e) => {
-                            const newStatus = e.target.checked
-                            try {
-                              // Update mess_periods.is_active instead of users.is_active
-                              const { error } = await supabase
-                                .from('mess_periods')
-                                .update({ is_active: newStatus })
-                                .eq('user_id', selectedStudent.id)
-                                .eq('is_active', !newStatus) // Update the currently active/inactive period
-                              
-                              if (error) throw error
-                              
-                              // Update local state
-                              setSelectedStudent({ ...selectedStudent, is_active: newStatus })
-                              await fetchStudents()
-                            } catch (err) {
-                              console.error('Error updating status:', err)
-                              alert('Failed to update mess period status')
-                            }
-                          }}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-300 dark:bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                      </label>
-                    </div>
+                  <div className="flex items-center gap-2">
+                    {selectedStudent.is_active ? (
+                      <span className="inline-flex items-center gap-2 text-sm bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 px-3 py-1.5 rounded-full">
+                        <CheckCircle className="w-4 h-4" />
+                        Active Subscription
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2 text-sm bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 px-3 py-1.5 rounded-full">
+                        <XCircle className="w-4 h-4" />
+                        Inactive
+                      </span>
+                    )}
                   </div>
+
+                  {/* Edit Feedback */}
+                  {editError && (
+                    <ErrorMessage
+                      error={editError}
+                      onDismiss={clearEditMessages}
+                    />
+                  )}
+                  {editSuccess && (
+                    <SuccessMessage
+                      message="Student information updated successfully!"
+                      onDismiss={clearEditMessages}
+                    />
+                  )}
 
                   {/* Student Information Grid */}
                   <div className="grid grid-cols-1 gap-3">
@@ -1922,126 +1822,6 @@ export function StudentsList() {
                       })()}
                     </div>
                   </div>
-
-                  {/* Photo Permission */}
-                  <div className="flex items-center gap-2 mb-4">
-                    <Shield className="w-5 h-5 text-primary" />
-                    <h4 className="text-lg font-semibold">Photo Permission</h4>
-                  </div>
-
-                  {permissionError && (
-                    <ErrorMessage 
-                      error={permissionError} 
-                      onDismiss={clearPermissionMessages}
-                      onRetry={handleSavePermissions}
-                    />
-                  )}
-                  
-                  {permissionSuccess && (
-                    <SuccessMessage 
-                      message="Photo permission updated successfully!" 
-                      onDismiss={clearPermissionMessages}
-                    />
-                  )}
-                  
-                  {editError && (
-                    <ErrorMessage 
-                      error={editError} 
-                      onDismiss={clearEditMessages}
-                    />
-                  )}
-                  
-                  {editSuccess && (
-                    <SuccessMessage 
-                      message="Student information updated successfully!" 
-                      onDismiss={clearEditMessages}
-                    />
-                  )}
-
-                  {/* Photo Update Permission */}
-                  <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <User className="w-4 h-4 text-muted-foreground" />
-                        <span className="font-medium">Allow Photo Update</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={permissionForm.photo_update_allowed}
-                          onChange={(e) => setPermissionForm({ ...permissionForm, photo_update_allowed: e.target.checked })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-300 dark:bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-                      </label>
-                    </div>
-                    
-                    {permissionForm.photo_update_allowed && (
-                      <div className="space-y-3 mt-3">
-                        <div>
-                          <label className="block text-xs font-medium text-muted-foreground mb-2">
-                            Duration
-                          </label>
-                          <div className="flex gap-2">
-                            <input
-                              type="number"
-                              min="1"
-                              max={permissionForm.time_unit === 'minutes' ? 10080 : 168}
-                              value={permissionForm.time_value}
-                              onChange={(e) => setPermissionForm({ ...permissionForm, time_value: e.target.value })}
-                              placeholder={permissionForm.time_unit === 'minutes' ? '1-10080' : '1-168'}
-                              className="flex-1 px-3 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-                            />
-                            <select
-                              value={permissionForm.time_unit}
-                              onChange={(e) => setPermissionForm({ ...permissionForm, time_unit: e.target.value as 'minutes' | 'hours' })}
-                              className="px-3 py-2 rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-                            >
-                              <option value="minutes">Minutes</option>
-                              <option value="hours">Hours</option>
-                            </select>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {permissionForm.time_unit === 'minutes' 
-                              ? 'Enter minutes (1-10080). Max: 1 week' 
-                              : 'Enter hours (1-168). Max: 1 week'}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Current Permission Status */}
-                  {selectedStudent?.photo_update_allowed && selectedStudent?.permission_expires_at && (
-                    <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
-                      <p className="text-sm text-yellow-700 dark:text-yellow-400">
-                        <strong>Active:</strong> Photo permission expires on{' '}
-                        {new Date(selectedStudent.permission_expires_at).toLocaleString('en-IN', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Info Note */}
-                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
-                    <p className="text-xs text-blue-700 dark:text-blue-400">
-                      <strong>Note:</strong> Students cannot edit their profile. They must request changes from you. Only photo updates can be temporarily enabled.
-                    </p>
-                  </div>
-
-                  {/* Save Button */}
-                  <Button
-                    onClick={handleSavePermissions}
-                    disabled={permissionLoading}
-                    className="w-full"
-                  >
-                    {permissionLoading ? 'Saving...' : 'Save Photo Permission'}
-                  </Button>
 
                   {/* Report Generation Section */}
                   <div className="mt-6 border-t border-border pt-6">
